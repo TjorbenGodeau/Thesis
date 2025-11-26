@@ -1,6 +1,7 @@
 import argparse
 import csv
 import numpy as np
+import matplotlib.pyplot as plt
 from GbSB import GbSB
 
 def create_random_J(N, seed=0):
@@ -21,6 +22,33 @@ def parse_list(arg, cast):
         return []
     return [cast(x) for x in arg]
 
+def plot_energy(energies, dt, A_val, M_val, save_path=None, show_energy=False):
+    steps = np.arange(len(energies))
+    plt.figure()
+    plt.plot(steps, energies, color="C0")
+    plt.xlabel("steps m")
+    plt.ylabel("Ising energy")
+    plt.title(f"Energy vs steps (A={A_val}, M={M_val})")
+    plt.grid(alpha=0.3)
+    if save_path:
+        plt.savefig(save_path, dpi=200, bbox_inches="tight")
+    if show_energy:
+        plt.show()
+    plt.close()
+
+def plot_heatmap(A_values, energy_matrix, dit,  heat_steps, heat_M, cmap="viridis_r", save_path=None, show_heat=False):
+    plt.figure(figsize=(8, max(4, 0.2*len(A_values))))
+    im = plt.imshow(energy_matrix, aspect="auto", origin="lower", cmap=cmap, extent=[0, heat_steps, A_values[0], A_values[-1]])
+    plt.colorbar(im, label="ising energy")
+    plt.xlabel("steps m")
+    plt.ylabel("A")
+    plt.title(f"Heatmap of energy over steps (M={heat_M})")
+    if save_path:
+        plt.savefig(save_path, dpi=200, bbox_inches="tight")
+    if show_heat:
+        plt.show()
+        plt.close()
+
 def main():
     parser = argparse.ArgumentParser(description="Run GbSB with configurable parameters.")
     parser.add_argument("--N", type=int, default=16, help="Number of spins/oscillators")
@@ -32,6 +60,12 @@ def main():
     parser.add_argument("--steps", type=int, default=None, help="Number of integration steps to run (defaults to M for each run)")
     parser.add_argument("--regen-j", action="store_true", default=False , help="Regenerate J for each (A,M) run (otherwise same J reused)")
     parser.add_argument("--out", type=str, default=None, help="Optional CSV output file to save results")
+    parser.add_argument("--plot", choices=["none","energy","heatmap","both"], default="both", help="Which plots to produce")
+    parser.add_argument("--heat-steps", type=int, default=50_000, help="Number of steps (m) to use along heatmap x-axis")
+    parser.add_argument("--heat-M", type=int, default=None, help="Which M value to use for heatmap (defaults to first M)")
+    parser.add_argument("--show-energy", action="store_true", default=False, help="Show plots interactively")
+    parser.add_argument("--show-heat", action="store_true", default=True, help="Show plots interactively")
+    parser.add_argument("--save-prefix", type=str, default=None, help="Prefix to save generated plots (files will be created)")
     args = parser.parse_args()
     for name, val in vars(args).items():
         print(name, ":", val)
@@ -52,7 +86,12 @@ def main():
             model.initialize(x0=x0, y0=y0)
 
             steps = args.steps if args.steps is not None else int(M_val)
-            model.run(steps=steps)
+            
+            energies = []
+            def cb(m, x, y, p):
+                energies.append(model.energy())
+            
+            model.run(steps=steps, callback=cb)
 
             spins = model.spins()
             energy = model.energy()
@@ -65,16 +104,53 @@ def main():
                 "seed": args.seed,
                 "per_spin": args.per_spin,
                 "energy": float(energy),
-                "spins": " ".join(str(int(s)) for s in spins)
+                "spins": " ".join(str(int(s)) for s in spins),
+                "energies": list(energies)
             })
+
+            if args.plot in ("energy","both"):
+                save_path = None
+                if args.save_prefix:
+                    save_path = f"{args.save_prefix}_energy_A{A_val}_M{M_val}.png"
+                plot_energy(energies, args.dt, A_val, M_val, save_path=save_path, show_energy=args.show_energy)
     
+    # optional CSV output
     if args.out:
         fieldnames = ["A", "M", "dt", "seed", "per_spin", "energy", "spins"]
         with open(args.out, "w", newline="") as f:
             writer = csv.DictWriter(f, fieldnames=fieldnames)
             writer.writeheader()
             for r in results:
-                writer.writerow(r)
+                writer.writerow({k: r[k] for k in fieldnames})
+
+    # heatmap: use specified heat-M (or the first M) and A sweep
+    if args.plot in ("heatmap","both"):
+        heat_M = args.heat_M if args.heat_M is not None else args.M[0]
+        # filter results for the chosen M and sort by A
+        rows = [r for r in results if r["M"] == int(heat_M)]
+        if len(rows) == 0:
+            print(f"No runs found for M={heat_M}, cannot build heatmap.")
+            return
+        rows.sort(key=lambda r: r["A"])
+        A_values = [r["A"] for r in rows]
+        heat_steps = int(args.heat_steps)
+        energy_matrix = np.zeros((len(rows), heat_steps), dtype=float)
+        for i, r in enumerate(rows):
+            e = r["energies"]
+            if len(e) >= heat_steps:
+                energy_matrix[i, :] = e[:heat_steps]
+            else:
+                # pad with last known energy (or nan if empty)
+                if len(e) == 0:
+                    energy_matrix[i, :] = np.nan
+                else:
+                    energy_matrix[i, :len(e)] = e
+                    energy_matrix[i, len(e):] = e[-1]
+
+        save_path = None
+        if args.save_prefix:
+            save_path = f"{args.save_prefix}_heatmap_M{heat_M}.png"
+        plot_heatmap(A_values, energy_matrix, args.dt, heat_steps, heat_M, save_path=save_path, show_heat=args.show_heat)
 
 if __name__ == "__main__":
     main()

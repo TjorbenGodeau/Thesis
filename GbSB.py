@@ -3,7 +3,7 @@ import numpy as np
 class GbSB:
     def __init__(self, J, dt=0.1, M=1000, A=0.0, per_spin=False):
         """
-        J: (N,N) coupling matrix (diagonal elements zero and J_ij = J_ji)
+        J: (N,N) coupling matrix (diagonal elements and below are zero)
         dt: time step Δt
         M: total discrete time steps of schedule (used for p schedule)
         A: nonlinear control constant for individuql p_i. A=0 --> conventional bSB
