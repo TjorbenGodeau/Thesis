@@ -52,7 +52,7 @@ def read_matrix_from_file(path: str, index_base: int = 1, dtype = float):
         raise ValueError("Input file has no non-empty, non-comment lines.")
     
     # First non-empty line is header: N and optional M
-    header_tokens = [t for t in content_lines[0].replace(","," ").split if t]
+    header_tokens = [t for t in content_lines[0].replace(","," ").split() if t]
     n, m_expected = parse_first_line(header_tokens)
 
     # Initialize matrix of zeros
@@ -79,7 +79,7 @@ def read_matrix_from_file(path: str, index_base: int = 1, dtype = float):
     if m_expected is not None and m_expected != len(entries):
         print(f"Warning: header expected {m_expected} non-zero entries, " f"but {len(entries)} were read.", file=sys.stderr)
     
-    return matrix
+    return matrix, n
         
 def write_matrix_to_csv(matrix, output_path: str):
     """
@@ -96,3 +96,22 @@ def write_matrix_to_txt(matrix, output_path: str):
     with open(output_path, "w", encoding="utf-8") as f:
         for row in matrix:
             f.write(" ".join(str(x) for x in row) + "\n")
+
+def compute_cut_value(matrix, energy):
+    """
+    Computes the cut value of the maxCut problem with current IC-matrix (J) and energy.
+    
+    :param matrix: Square matrix with interaction coeficients
+    :param energy: Ising energy
+    """
+    total_weight = np.sum(matrix)
+    return (total_weight - energy) / 2
+
+def main():
+    matrix = read_matrix_from_file(r"C:\Users\tjorb\Documents\Thesis\benchmark\G_Set\G1.txt")
+    print("Matrix has been extracted")
+    write_matrix_to_txt(matrix, r"C:\Users\tjorb\Documents\Thesis\output_files\G1.txt")
+    print("Matrix has been written to text file")
+
+if __name__ == "__main__":
+    main()
