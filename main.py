@@ -4,6 +4,9 @@ import numpy as np
 import matplotlib.pyplot as plt
 from GbSB import GbSB
 from Gset_extract import read_matrix_from_file, compute_cut_value
+from pathlib import Path
+from datetime import datetime
+import re
 
 def create_random_J(N, seed=0):
     rng = np.random.default_rng(seed)
@@ -25,17 +28,35 @@ def parse_list(arg, cast):
 
 def plot_energy(energies, dt, A_val, M_val, save_path=None, show_energy=False):
     steps = np.arange(len(energies))
-    plt.figure()
-    plt.plot(steps, energies, color="C0")
-    plt.xlabel("steps m")
-    plt.ylabel("Ising energy")
-    plt.title(f"Energy vs steps (A={A_val}, M={M_val})")
-    plt.grid(alpha=0.3)
+    fig, ax = plt.subplots()
+    ax.plot(steps, energies, color="C0")
+    ax.set_xlabel("steps m")
+    ax.set_ylabel("Ising energy")
+    ax.set_title(f"Energy vs steps (A={A_val}, M={M_val})")
+    ax.grid(alpha=0.3)
     if save_path:
-        plt.savefig(save_path, dpi=200, bbox_inches="tight")
+        fig.savefig(save_path, dpi=200, bbox_inches="tight")
     if show_energy:
-        plt.show()
-    plt.close()
+        # non-blocking show; do not close so the window remains open while code continues
+        plt.show(block=False)
+    else:
+        plt.close(fig)
+
+def plot_hamiltonian(hamiltonians, dt, A_val, M_val, save_path=None, show_ham=False):
+    steps = np.arange(len(hamiltonians))
+    fig, ax = plt.subplots()
+    ax.plot(steps, hamiltonians, color="C1", label="Hamiltonian")
+    ax.set_xlabel("steps m")
+    ax.set_ylabel("Hamiltonian")
+    ax.set_title(f"Hamiltonian vs steps (A={A_val}, M={M_val})")
+    ax.grid(alpha=0.3)
+    ax.legend()
+    if save_path:
+        fig.savefig(save_path, dpi=200, bbox_inches="tight")
+    if show_ham:
+        plt.show(block=False)
+    else:
+        plt.close(fig)
 
 def plot_heatmap(A_values, energy_matrix, dit,  heat_steps, heat_M, cmap="viridis_r", save_path=None, show_heat=False):
     plt.figure(figsize=(8, max(4, 0.2*len(A_values))))
@@ -47,8 +68,18 @@ def plot_heatmap(A_values, energy_matrix, dit,  heat_steps, heat_M, cmap="viridi
     if save_path:
         plt.savefig(save_path, dpi=200, bbox_inches="tight")
     if show_heat:
-        plt.show()
-        plt.close()
+        plt.show(block=False)
+        plt.pause(0.001)
+    plt.close()
+
+def make_save_prefix(base: str, args):
+    base = re.sub(r'[<>:"/\\|?*]', '_', base)  # sanitize
+    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+    pref = f"{base}_seed{args.seed}_{ts}"
+    # If base included a folder, ensure it exists:
+    out_dir = Path(pref).parent
+    out_dir.mkdir(parents=True, exist_ok=True)
+    return pref
 
 def main():
     parser = argparse.ArgumentParser(description="Run GbSB with configurable parameters.")
@@ -64,8 +95,9 @@ def main():
     parser.add_argument("--plot", choices=["none","energy","heatmap","both"], default="both", help="Which plots to produce")
     parser.add_argument("--heat-steps", type=int, default=25_000, help="Number of steps (m) to use along heatmap x-axis")
     parser.add_argument("--heat-M", type=int, default=None, help="Which M value to use for heatmap (defaults to first M)")
-    parser.add_argument("--show-energy", action="store_true", default=False, help="Show plots interactively")
+    parser.add_argument("--show-energy", action="store_true", default=True, help="Show plots interactively")
     parser.add_argument("--show-heat", action="store_true", default=True, help="Show plots interactively")
+    parser.add_argument("--plot-hamiltonian", action="store_true", default=True, help="Also plot Hamiltonian vs steps for each run")
     parser.add_argument("--save-prefix", type=str, default=None, help="Prefix to save generated plots (files will be created)")
     parser.add_argument("--randomJ", action="store_true", default="False", help="Use random J (interaction coeficients) matrix")
     parser.add_argument("--file-path", type=str, default=r"C:\Users\tjorb\Documents\Thesis\benchmark\G_Set\G1.txt", help="Path where benchmarks are found")
@@ -96,16 +128,19 @@ def main():
                 steps = args.steps if args.steps is not None else int(M_val)
                 
                 energies = []
+                hamiltonians = []
                 def cb(m, x, y, p):
                     energies.append(model.energy())
+                    hamiltonians.append(model.hamiltonian())
                 
                 model.run(steps=steps, callback=cb)
 
                 spins = model.spins()
                 energy = model.energy()
-                cut_value = compute_cut_value(J, energy)
+                ham = model.hamiltonian()
+                cut_value = compute_cut_value(J, energy) if "compute_cut_value" in globals() else None
 
-                print(f"A={A_val}, M={M_val}, dt={args.dt}, seed={args.seed}, per_spin={args.per_spin} -> Energy={energy:.6g}, Cut value={cut_value:.6g}")
+                print(f"A={A_val}, M={M_val}, dt={args.dt}, seed={args.seed}, per_spin={args.per_spin} -> Energy={energy:.6g}, Hamiltonian={ham:.6g}, Cut value={cut_value}")
                 results.append({
                     "A": A_val,
                     "M": int(M_val),
@@ -113,15 +148,27 @@ def main():
                     "seed": args.seed,
                     "per_spin": args.per_spin,
                     "energy": float(energy),
+                    "hamiltonian": float(ham),
                     "spins": " ".join(str(int(s)) for s in spins),
-                    "energies": list(energies)
+                    "energies": list(energies),
+                    "hamiltonians": list(hamiltonians)
                 })
+
+                prefix = make_save_prefix(args.save_prefix or "GbSB_results", args)
 
                 if args.plot in ("energy","both"):
                     save_path = None
                     if args.save_prefix:
-                        save_path = f"{args.save_prefix}_energy_A{A_val}_M{M_val}.png"
+                        save_path = f"{prefix}_energy_A{A_val}_M{M_val}.png"
                     plot_energy(energies, args.dt, A_val, M_val, save_path=save_path, show_energy=args.show_energy)
+
+                if args.plot_hamiltonian:
+                    save_path = None
+                    if args.save_prefix:
+                        save_path = f"{prefix}_ham_A{A_val}_M{M_val}.png"
+                    # show_ham flag re-uses args.show-energy so user can show or not
+                    plot_hamiltonian(hamiltonians, args.dt, A_val, M_val, save_path=save_path, show_ham=args.show_energy)
+
             else:
                 J, N = read_matrix_from_file(args.file_path) if args.regen_j else (J_base, N_base)
                 model = GbSB(J, dt=args.dt, M=int(M_val), A=float(A_val), per_spin=args.per_spin)
@@ -136,16 +183,19 @@ def main():
                 steps = args.steps if args.steps is not None else int(M_val)
                 
                 energies = []
+                hamiltonians = []
                 def cb(m, x, y, p):
                     energies.append(model.energy())
+                    hamiltonians.append(model.hamiltonian())
                 
                 model.run(steps=steps, callback=cb)
 
                 spins = model.spins()
                 energy = model.energy()
-                cut_value = compute_cut_value(J, energy)
+                ham = model.hamiltonian()
+                cut_value = compute_cut_value(J, energy) if "compute_cut_value" in globals() else None
 
-                print(f"A={A_val}, M={M_val}, dt={args.dt}, seed={args.seed}, per_spin={args.per_spin} -> Energy={energy:.6g}, Cut value={cut_value:.6g}")
+                print(f"A={A_val}, M={M_val}, dt={args.dt}, seed={args.seed}, per_spin={args.per_spin} -> Energy={energy:.6g}, Hamiltonian={ham:.6g}, Cut value={cut_value}")
                 results.append({
                     "A": A_val,
                     "M": int(M_val),
@@ -153,16 +203,26 @@ def main():
                     "seed": args.seed,
                     "per_spin": args.per_spin,
                     "energy": float(energy),
+                    "hamiltonian": float(ham),
                     "spins": " ".join(str(int(s)) for s in spins),
-                    "energies": list(energies)
+                    "energies": list(energies),
+                    "hamiltonians": list(hamiltonians)
                 })
+
+                prefix = make_save_prefix(args.save_prefix or "GbSB_results", args)
 
                 if args.plot in ("energy","both"):
                     save_path = None
                     if args.save_prefix:
-                        save_path = f"{args.save_prefix}_energy_A{A_val}_M{M_val}.png"
+                        save_path = f"{prefix}_energy_A{A_val}_M{M_val}.png"
                     plot_energy(energies, args.dt, A_val, M_val, save_path=save_path, show_energy=args.show_energy)
 
+                if args.plot_hamiltonian:
+                    save_path = None
+                    if args.save_prefix:
+                        save_path = f"{prefix}_ham_A{A_val}_M{M_val}.png"
+                    # show_ham flag re-uses args.show-energy so user can show or not
+                    plot_hamiltonian(hamiltonians, args.dt, A_val, M_val, save_path=save_path, show_ham=args.show_energy)
     
     # optional CSV output
     if args.out:
