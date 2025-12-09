@@ -26,8 +26,10 @@ class GbSB:
         #bifurcation parameter p
         if self.per_spin:
             self.p = np.ones(self.N, dtype=float)   #p_i(0)=1
+            print("Using generalized bifurcation")
         else:
             self.p = 1.0                            #p(0)=1
+            print("Using conventional bifurcation")
 
         #internal step counter
         self.m = 0

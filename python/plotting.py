@@ -35,13 +35,13 @@ def plot_hamiltonian(hamiltonians, A_val, M_val, save_path=None, show_ham=False)
     else:
         plt.close(fig)
 
-def plot_heatmap(A_values, energy_matrix, heat_steps, heat_M, cmap="viridis_r", save_path=None, show_heat=False):
+def plot_heatmap(A_values, energy_matrix, heat_steps, cmap="viridis_r", save_path=None, show_heat=False):
     plt.figure(figsize=(8, max(4, 0.2*len(A_values))))
     im = plt.imshow(energy_matrix, aspect="auto", origin="lower", cmap=cmap, extent=[0, heat_steps, A_values[0], A_values[-1]])
     plt.colorbar(im, label="ising energy")
     plt.xlabel("steps m")
     plt.ylabel("A")
-    plt.title(f"Heatmap of energy over steps (M={heat_M})")
+    plt.title(f"Heatmap of energy over steps (M={heat_steps})")
     if save_path:
         plt.savefig(save_path, dpi=200, bbox_inches="tight")
     if show_heat:

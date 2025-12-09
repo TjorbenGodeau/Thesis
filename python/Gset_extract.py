@@ -34,13 +34,15 @@ def parse_first_line(tokens: List[str]) -> Tuple[int, Optional[int]]:
     m = int(tokens[1])
     return n, m
 
-def read_matrix_from_file(path: str, index_base: int = 1, dtype = float):
+def read_matrix_from_file(path: str, index_base: int = 1, dtype = float, symmetric: bool = True):
     """
     Read coordinate format matrix file and return a NxN matrix.
 
     - path: input file path
     - index_base: 1 for 1-based indexing, 0 for 0-based indexing
     - dtype: type for the matrix entries (float by default)
+    - symmetric: if True, mirror entries across the diagonal to create a symmetric matrix
+                 (i.e., if (i,j) is provided with i < j, also set (j,i) = (i,j))
     """
     with open(path, "r", encoding="utf-8") as f:
         lines = [ln.strip() for ln in f]
@@ -74,6 +76,10 @@ def read_matrix_from_file(path: str, index_base: int = 1, dtype = float):
             raise IndexError(f"Index out of bounds in line: '{line}' (converted to 0-based: {r},{c})")
         entries.append((r, c, v))
         matrix[r, c] = v
+
+        # Mirror across diagonal if symmetric flag is True and entry is off-diagonal
+        if symmetric and r != c:
+            matrix[c, r] = v
     
     if m_expected is not None and m_expected != len(entries):
         print(f"Warning: header expected {m_expected} non-zero entries, " f"but {len(entries)} were read.", file=sys.stderr)
