@@ -1,7 +1,7 @@
 import numpy as np
 
 class GbSB:
-    def __init__(self, J, dt=0.1, M=1000, A=0.0, per_spin=False):
+    def __init__(self, J, dt=1.0, M=1000, A=0.0, per_spin=False):
         """
         J: (N,N) coupling matrix (diagonal elements and below are zero)
         dt: time step Δt
