@@ -124,6 +124,9 @@ class GbSB:
         s = self.spins().astype(float)
         return -0.5 * s.dot(self.J.dot(s))
     
-    def hamiltonian(self):
+    def potential(self):
         c = 1 / (2 * np.sqrt(self.N))
-        return 0.5 * np.sum(self.y ** 2) + 0.5 * np.sum(self.p * (self.x ** 2)) - (c / 2) * self.x.dot(self.J.dot(self.x))
+        return 0.5 * np.sum(self.p * (self.x ** 2)) - (c / 2) * self.x.dot(self.J.dot(self.x))
+
+    def hamiltonian(self):
+        return 0.5 * np.sum(self.y ** 2) + self.potential()

@@ -4,7 +4,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from GbSB import GbSB
 from Gset_extract import read_matrix_from_file, compute_cut_value
-from plotting import plot_energy, plot_hamiltonian, plot_heatmap
+from plotting import plot_energy, plot_potential, plot_hamiltonian, plot_heatmap
 
 def create_random_J(N, seed=0, sparsity=0.2):
     rng = np.random.default_rng(seed)
@@ -28,17 +28,18 @@ def parse_list(arg, cast):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("-g", "--gset-j", action="store_true", help="Use interaction coefs matrix from G Set")
-    parser.add_argument("--gset_path", nargs="?", default=r"C:\Users\tjorb\Documents\Thesis\benchmark\G_Set\G1.txt", help="path to G Set file")
+    parser.add_argument("--gset_path", nargs="?", default=r"C:\Users\tjorb\Documents\Thesis\benchmark\G_Set\G6.txt", help="path to G Set file")
     parser.add_argument("--dt", type=float, default=1.0, help="time step delta t")
-    parser.add_argument("--M", type=int, default=10, help="total discrete time steps")
+    parser.add_argument("--M", type=int, default=50, help="total discrete time steps")
     # parser.add_argument("--A", type=float, default=0.3, help="nonlinear control constant A")
-    parser.add_argument("A", nargs="*", type=float, default=list(np.linspace(0.0, 1.0, 101)), help="nonlinear control constants A (default: 0.0..1.0 inclusive)")
+    parser.add_argument("--A", nargs="*", type=float, default=list(np.linspace(0.0, 1.0, 21)), help="nonlinear control constants A (default: 0.0..1.0 inclusive)")
     parser.add_argument("-p", "--per-spin", action="store_true", help="use individual p_i for each oscillator")
     parser.add_argument("-e", "--energy", action="store_true", help="show energy plot")
     parser.add_argument("-hm", "--hamiltonian", action="store_true", help="show hamiltonian plot")
     parser.add_argument("--N", type=int, default=8, help="number of spins (used if not using G Set file)")
     parser.add_argument("--seed", type=int, default=0, help="random seed (used if not using G Set file)")
     parser.add_argument("-he", "--heatmap", action="store_true", help="show heatmap of energies over A values")
+    parser.add_argument("-v", "--potential", action="store_true", help="show potential plot")
     args = parser.parse_args()
 
     if args.gset_j:
@@ -64,11 +65,13 @@ def main():
         model.initialize(x0=initial_x, y0=initial_y, p0=initial_p)
 
         energies = []
+        potentials = []
         hamiltonians = []
 
         def record_callback(m, x, y, p):
             """Callback to record energy and hamiltonian at each step."""
             energies.append(model.energy())
+            potentials.append(model.potential())
             hamiltonians.append(model.hamiltonian())
             # print("Positions:", model.x)
             # print("Momenta:", model.y)
@@ -83,8 +86,9 @@ def main():
 
         print(f"A={A_val}, M={args.M} -> Energy={energy_final:.6g}, Hamiltonian={hamiltonian_final:.6g}, Cut value={cut_value}")
 
-        plot_energy(energies, A_val=args.A, M_val=args.M, show_energy=args.energy)
-        plot_hamiltonian(hamiltonians, A_val=args.A, M_val=args.M, show_ham=args.hamiltonian)
+        plot_energy(energies, A_val=A_val, M_val=args.M, show_energy=args.energy)
+        plot_potential(potentials, A_val=A_val, M_val=args.M, show_pot=args.potential)
+        plot_hamiltonian(hamiltonians, A_val=A_val, M_val=args.M, show_ham=args.hamiltonian)
 
         energy_matrix.append(energies)
     

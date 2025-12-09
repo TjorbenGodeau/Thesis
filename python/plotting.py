@@ -19,6 +19,22 @@ def plot_energy(energies, A_val, M_val, save_path=None, show_energy=False):
     else:
         plt.close(fig)
 
+def plot_potential(potentials, A_val, M_val, save_path=None, show_pot=False):
+    steps = np.arange(len(potentials))
+    fig, ax = plt.subplots()
+    ax.plot(steps, potentials, color="C1", label="Potential")
+    ax.set_xlabel("steps m")
+    ax.set_ylabel("Potential")
+    ax.set_title(f"Potential vs steps (A={A_val}, M={M_val})")
+    ax.grid(alpha=0.3)
+    ax.legend()
+    if save_path:
+        fig.savefig(save_path, dpi=200, bbox_inches="tight")
+    if show_pot:
+        plt.show()
+    else:
+        plt.close(fig)
+
 def plot_hamiltonian(hamiltonians, A_val, M_val, save_path=None, show_ham=False):
     steps = np.arange(len(hamiltonians))
     fig, ax = plt.subplots()
