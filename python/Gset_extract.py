@@ -112,11 +112,29 @@ def compute_cut_value(matrix, energy):
     total_weight = np.sum(matrix)
     return (total_weight - energy) / 2
 
+def number_of_neighbours(matrix):
+    """"
+    computes the number of neighbours for each node in the graph and stores them in a dictionary. 
+    this dictionary has as key the number of neighbours and as value the number of the node stored in a list.
+    """
+    n = matrix.shape[0]
+    neighbour_counts = np.sum(matrix != 0, axis=1)  # Count non-zero entries in each row
+    count_dict = {}
+    for count in neighbour_counts:
+        count_dict[count] = np.where(neighbour_counts == count)[0]
+    return count_dict
+
+
 def main():
-    matrix = read_matrix_from_file(r"C:\Users\tjorb\Documents\Thesis\benchmark\G_Set\G1.txt")
-    print("Matrix has been extracted")
-    write_matrix_to_txt(matrix, r"C:\Users\tjorb\Documents\Thesis\output_files\G1.txt")
-    print("Matrix has been written to text file")
+    """
+    do for loop to read all the G_Set matrices and print the highest and lowest number of neighbours for each matrix."""
+    for i in range(1, 43):  # Assuming you have G1.txt through G42.txt
+        matrix, n = read_matrix_from_file(rf"C:\Users\tjorb\Documents\Thesis\benchmark\G_Set\G{i}.txt")
+        print(f"Matrix {i} has been extracted")
+        neighbour_dict = number_of_neighbours(matrix)
+        #print the highest key and lowest key of the neighbour_dict
+        print("Highest number of neighbours: ", max(neighbour_dict.keys()))
+        print("Lowest number of neighbours: ", min(neighbour_dict.keys()))
 
 if __name__ == "__main__":
     main()
