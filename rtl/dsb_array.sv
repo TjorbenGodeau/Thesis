@@ -160,11 +160,11 @@ module dsb_array
                                 cur_osc <= '0;
                                 step_done <= 1'b1;
                                 if (m == Nstep - 1) begin
-                                schedule_done <= 1'b1;
-                                running <= 1'b0;
+                                    schedule_done <= 1'b1;
+                                    running <= 1'b0;
                                 end else begin
-                                m <= m + 1;
-                                ctrl <= CTRL_LOAD;
+                                    m <= m + 1;
+                                    ctrl <= CTRL_LOAD;
                                 end
                             end else begin
                                 cur_osc <= cur_osc + 1;
