@@ -1,4 +1,4 @@
-module (
+module 8t_bitcell(
     input logic clk,        
     input logic wwl,        // write word line (normal mode)
     input logic wbl,        // write bit line
