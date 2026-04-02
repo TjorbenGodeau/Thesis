@@ -64,29 +64,34 @@ module tb_dsb_sachi;
  
   // ── DUT ────────────────────────────────────────────────────────────────────
   dsb_array #(
-    .N_P(TB_N),       .IC_BITS_P(TB_IC),    .XY_W_P(TB_XY_W),
-    .XY_FRAC_P(TB_XY_FRAC), .A_BITS_P(TB_A_BITS), .STEP_W_P(TB_STEP_W),
-    .ACCUM_W_P(TB_ACCUM_W), .PROD_W_P(TB_PROD_W)
+    .N_P (TB_N),       
+    .IC_BITS_P (TB_IC),    
+    .XY_W_P (TB_XY_W),
+    .XY_FRAC_P (TB_XY_FRAC), 
+    .A_BITS_P (TB_A_BITS), 
+    .STEP_W_P (TB_STEP_W),
+    .ACCUM_W_P (TB_ACCUM_W), 
+    .PROD_W_P (TB_PROD_W)
   ) dut (
-    .clk          (clk),
-    .rst_n        (rst_n),
-    .wr_row       (wr_row),
-    .wr_en        (wr_en),
-    .wr_J_row     (wr_J_row),
-    .wr_xy_idx    (wr_xy_idx),
-    .wr_xy_en     (wr_xy_en),
-    .wr_x         (wr_x),
-    .wr_y         (wr_y),
-    .run          (run),
-    .Nstep        (TB_STEP_W'(NSTEP)),
-    .a0_fp        (TB_A_BITS'(A0_FP)),
-    .dt_fp        (TB_XY_FRAC'(DT_FP)),
-    .c0_fp        (TB_XY_FRAC'(C0_FP)),
-    .x_out        (x_out),
-    .y_out        (y_out),
-    .signs_out    (signs_out),
-    .step_done    (step_done),
-    .schedule_done(schedule_done)
+    .clk (clk),
+    .rst_n (rst_n),
+    .wr_row (wr_row),
+    .wr_en (wr_en),
+    .wr_J_row (wr_J_row),
+    .wr_xy_idx (wr_xy_idx),
+    .wr_xy_en (wr_xy_en),
+    .wr_x (wr_x),
+    .wr_y (wr_y),
+    .run (run),
+    .Nstep (TB_STEP_W'(NSTEP)),
+    .a0_fp (TB_A_BITS'(A0_FP)),
+    .dt_fp (TB_XY_FRAC'(DT_FP)),
+    .c0_fp (TB_XY_FRAC'(C0_FP)),
+    .x_out (x_out),
+    .y_out (y_out),
+    .signs_out (signs_out),
+    .step_done (step_done),
+    .schedule_done (schedule_done)
   );
  
   // ── Helper task: display x values as reals ─────────────────────────────────
