@@ -1,3 +1,4 @@
+`timescale 1ns / 1ps
 // =============================================================================
 // 9.  Testbench — 4-oscillator dSB, ferromagnetic J = +1 everywhere
 //
