@@ -6,9 +6,9 @@ module xnor_phase1
     )(
         input logic clk,
         input logic capture,                        // strobe: latch on posedge
-        dsb_tile_if.ph1_in tile_bus,                
+        dsb_tile_if.ph1_in tile_bus,                // tile interface (input to phase-1)
         output logic [N_P*IC_BITS_P-1:0] xnor_J,
-        output logic [N_P-1:0] sign_eq              // 1 = sale sign as x_i
+        output logic [N_P-1:0] sign_eq              // 1 = same sign as x_i
     );
 
     always_ff @(posedge clk) begin

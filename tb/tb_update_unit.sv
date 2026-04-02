@@ -39,8 +39,11 @@ module tb_update_unit;
   logic                         done;
  
   update_unit #(
-    .XY_W_P(XY_T), .XY_FRAC_P(FRAC_T), .A_BITS_P(A_T),
-    .ACCUM_W_P(ACC_T), .PROD_W_P(PROD_T)
+    .XY_W_P(XY_T), 
+    .XY_FRAC_P(FRAC_T), 
+    .A_BITS_P(A_T),
+    .ACCUM_W_P(ACC_T), 
+    .PROD_W_P(PROD_T)
   ) dut (.*);
  
   int pass_cnt = 0, fail_cnt = 0;

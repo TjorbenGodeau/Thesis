@@ -29,11 +29,11 @@ module tb_xnor_phase1;
     .sign_eq  (sign_eq)
   );
 
-  logic [N_T*IC_T-1:0] tb_rbl_J    = '0;
-  logic [N_T-1:0]       tb_rbl_signs = '0;
+  logic [N_T*IC_T-1:0] tb_rbl_J = '0;
+  logic [N_T-1:0] tb_rbl_signs = '0;
   
   // Drive tile_bus directly from TB (bypass tile module)
-  assign tile_bus.rbl_J    = tb_rbl_J;
+  assign tile_bus.rbl_J = tb_rbl_J;
   assign tile_bus.rbl_signs = tb_rbl_signs;
  
   int pass_cnt = 0, fail_cnt = 0;

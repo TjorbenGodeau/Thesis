@@ -13,33 +13,38 @@ module tb_core;
   import dsb_pkg::*;
   import tb_helpers::*;
  
-  localparam int unsigned N_T   = 4;
-  localparam int unsigned IC_T  = 8;
-  localparam int unsigned XY_T  = XY_W;
-  localparam int unsigned FT    = XY_FRAC;
-  localparam int unsigned AT    = A_BITS;
-  localparam int unsigned ACCT  = ACCUM_W;
+  localparam int unsigned N_T = 4;
+  localparam int unsigned IC_T = 8;
+  localparam int unsigned XY_T = XY_W;
+  localparam int unsigned FT = XY_FRAC;
+  localparam int unsigned AT = A_BITS;
+  localparam int unsigned ACCT = ACCUM_W;
   localparam int unsigned PRODT = PROD_W;
  
-  localparam int unsigned DT_FP  = 1638;
-  localparam int unsigned C0_FP  = 8192;
-  localparam int unsigned A0_FP  = 32768;
+  localparam int unsigned DT_FP = 1638;
+  localparam int unsigned C0_FP = 8192;
+  localparam int unsigned A0_FP = 32768;
  
   logic clk = 0, rst_n;
   always #5 clk = ~clk;
  
-  logic                       start, wwl;
-  logic [N_T*IC_T-1:0]       wbl_J;
-  logic [N_T-1:0]             wbl_signs;
-  logic signed [XY_T-1:0]    x_i, y_i;
-  logic [AT-1:0]              a_m;
-  logic [FT-1:0]              dt_fp, c0_fp;
-  logic signed [XY_T-1:0]    x_i_new, y_i_new;
-  logic                       sign_xi_new, done;
+  logic start, wwl;
+  logic [N_T*IC_T-1:0] wbl_J;
+  logic [N_T-1:0] wbl_signs;
+  logic signed [XY_T-1:0] x_i, y_i;
+  logic [AT-1:0] a_m;
+  logic [FT-1:0] dt_fp, c0_fp;
+  logic signed [XY_T-1:0] x_i_new, y_i_new;
+  logic sign_xi_new, done;
  
   dsb_core #(
-    .N_P(N_T), .IC_BITS_P(IC_T), .XY_W_P(XY_T), .XY_FRAC_P(FT),
-    .A_BITS_P(AT), .ACCUM_W_P(ACCT), .PROD_W_P(PRODT)
+    .N_P(N_T), 
+    .IC_BITS_P(IC_T), 
+    .XY_W_P(XY_T), 
+    .XY_FRAC_P(FT),
+    .A_BITS_P(AT), 
+    .ACCUM_W_P(ACCT), 
+    .PROD_W_P(PRODT)
   ) dut (.*);
  
   int pass_cnt = 0, fail_cnt = 0;
