@@ -1,3 +1,4 @@
+`timescale 1ns / 1ps
 // =============================================================================
 // TB 5 — dsb_schedule
 // Tests:
@@ -21,7 +22,7 @@ module tb_schedule;
   logic [A_T-1:0]    a0_fp_in = A_T'(A0_FP);
   logic [A_T-1:0]    a_m;
  
-  dsb_schedule #(.A_BITS_P(A_T), .STEP_W_P(STEP_T)) dut (
+  schedule #(.A_BITS_P(A_T), .STEP_W_P(STEP_T)) dut (
     .m     (m),
     .Nstep (Nstep_in),
     .a0_fp (a0_fp_in),

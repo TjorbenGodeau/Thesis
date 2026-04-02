@@ -1,3 +1,4 @@
+`timescale 1ns / 1ps
 // =============================================================================
 // TB 2 — dsb_compute_tile
 // Tests:
@@ -22,7 +23,7 @@ module tb_compute_tile;
  
   dsb_tile_if #(.N_P(N_T), .IC_BITS_P(IC_T)) tile_bus ();
  
-  dsb_compute_tile #(.N_P(N_T), .IC_BITS_P(IC_T)) dut (
+  compute_tile #(.N_P(N_T), .IC_BITS_P(IC_T)) dut (
     .clk       (clk),
     .precharge (precharge),
     .wwl       (wwl),

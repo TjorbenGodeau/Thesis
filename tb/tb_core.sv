@@ -1,3 +1,4 @@
+`timescale 1ns / 1ps
 // =============================================================================
 // TB 7 — dsb_core
 // Tests the 4-cycle FSM for a single oscillator end-to-end.
@@ -88,8 +89,10 @@ module tb_core;
     //      x_new = 0.1 + 0.1×0.2 = 0.12
     run_one({4{8'h01}}, 4'b1111, to_fp(0.1), '0, '0);
     begin
-      real x_got = from_fp(x_i_new);
-      real y_got = from_fp(y_i_new);
+      real x_got;
+      real y_got;
+      x_got = from_fp(x_i_new);
+      y_got = from_fp(y_i_new);
       if (x_got > 0.10 && x_got < 0.14 && y_got > 0.15 && y_got < 0.25) begin
         $display("  PASS [T7.1] x=%.4f y=%.4f", x_got, y_got); pass_cnt++;
       end else begin
@@ -109,8 +112,10 @@ module tb_core;
     //      → x should clamp to +ONE_FP, y=0
     run_one({4{8'h01}}, 4'b1111, to_fp(0.95), '0, '0);
     begin
-      real x_got = from_fp(x_i_new);
-      real y_got = from_fp(y_i_new);
+      real x_got;
+      real y_got;
+      x_got = from_fp(x_i_new);
+      y_got = from_fp(y_i_new);
       if (x_got >= 0.999 && y_got == 0.0) begin
         $display("  PASS [T7.3 wall_pos] x=%.4f y=%.4f", x_got, y_got); pass_cnt++;
       end else begin
@@ -123,10 +128,13 @@ module tb_core;
     reset_dut();
     run_one({4{8'h01}}, 4'b1111, to_fp(0.05), '0, '0);
     begin
-      logic signed [XY_T-1:0] x1 = x_i_new;
-      logic signed [XY_T-1:0] y1 = y_i_new;
+      logic signed [XY_T-1:0] x1;
+      logic signed [XY_T-1:0] y1;
+      x1 = x_i_new;
+      y1 = y_i_new;
       run_one({4{8'h01}}, 4'b1111, x1, y1, '0);
-      real x2 = from_fp(x_i_new);
+      real x2;
+      x2 = from_fp(x_i_new);
       if (x2 > from_fp(x1)) begin
         $display("  PASS [T7.4 sequential] x1=%.4f x2=%.4f", from_fp(x1), x2);
         pass_cnt++;

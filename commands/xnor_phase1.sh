@@ -2,8 +2,9 @@ xrun \
     -gui \
     -debug \
     -linedebug \
-    $WORK_DIR/tb/tb_xnor_phase1.sv \
     $WORK_DIR/rtl/dsb_pkg.sv \
+    $WORK_DIR/tb/tb_xnor_phase1.sv \
     $WORK_DIR/rtl/xnor_phase1.sv \
     $WORK_DIR/rtl/compute_tile.sv \
+    $WORK_DIR/rtl/dsb_tile_if.sv \
     $WORK_DIR/rtl/8t_bitcell.sv \

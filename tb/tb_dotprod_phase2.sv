@@ -1,3 +1,4 @@
+`timescale 1ns / 1ps
 // =============================================================================
 // TB 4 — dsb_dotprod_phase2
 // Tests (N=4, IC_BITS=8):
@@ -24,7 +25,7 @@ module tb_dotprod_phase2;
   logic signed [ACCUM_T-1:0] Jx_i;
   logic                       done;
  
-  dsb_dotprod_phase2 #(.N_P(N_T), .IC_BITS_P(IC_T), .ACCUM_W_P(ACCUM_T)) dut (.*);
+  dotprod_phase2 #(.N_P(N_T), .IC_BITS_P(IC_T), .ACCUM_W_P(ACCUM_T)) dut (.*);
  
   int pass_cnt = 0, fail_cnt = 0;
  
