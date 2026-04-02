@@ -11,7 +11,7 @@ module xnor_phase1
         output logic [N_P-1:0] sign_eq              // 1 = sale sign as x_i
     );
 
-    always_ff @(posedege clk) begin
+    always_ff @(posedge clk) begin
         if (capture) begin
             xnor_J <= tile_bus.rbl_J;
             sign_eq <= tile_bus.rbl_signs;

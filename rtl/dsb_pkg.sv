@@ -1,4 +1,4 @@
-package dsb_pkg
+package dsb_pkg;
     // --- Problem size ---
     parameter int unsigned N = 8;       // number of dSB oscillators
     parameter int unsigned IC_BITS = 7; // J coefficient bit width
@@ -25,7 +25,7 @@ package dsb_pkg
 
     // --- Core FSM states ---
     typedef enum logic [2:0] {
-        S_IDLE, 3'd0,
+        S_IDLE = 3'd0,
         S_PRECHARGE = 3'd1,
         S_PHASE1 = 3'd2,
         S_PHASE2 = 3'd3,

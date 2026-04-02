@@ -24,7 +24,7 @@ module update_unit
     function automatic logic signed [XY_W_P-1:0] saturate (
         input logic signed [XY_W_P:0] v
     );
-        localparam logic signed [XY_X_P-1:0] MAX_VAL = (1 << (XY_W_P-1)) - 1;
+        localparam logic signed [XY_W_P-1:0] MAX_VAL = (1 << (XY_W_P-1)) - 1;
         localparam logic signed [XY_W_P-1:0] MIN_VAL = -(1 << (XY_W_P-1));
         if (v > signed'({1'b0, MAX_VAL})) return MAX_VAL;
         else if (v < signed'({1'b1, MIN_VAL})) return MIN_VAL;
@@ -38,7 +38,7 @@ module update_unit
             automatic logic signed [PROD_W_P-1:0] ax_full = ($signed({{(PROD_W_P-XY_W_P){x_i[XY_W_P-1]}}, x_i}) * $signed({1'b0, a_m})) >>> (A_BITS_P - 1);
 
             // --- c0 * Jx_i ---
-            utomatic logic signed [ACCUM_W_P+XY_FRAC_P-1:0] c0jx_full = (Jx_i * $signed({1'b0, c0_fp})) >>> XY_FRAC_P;
+            automatic logic signed [ACCUM_W_P+XY_FRAC_P-1:0] c0jx_full = (Jx_i * $signed({1'b0, c0_fp})) >>> XY_FRAC_P;
 
             // --- deltay = dt * (-a*x + c0*Jx) ---
             automatic logic signed [XY_W_P-1:0] neg_ax = -ax_full[XY_W_P-1:0];
@@ -57,7 +57,7 @@ module update_unit
                 y_i_new <= '0;
             end else if (x_new < -ONE_FP) begin
                 x_i_new <= -ONE_FP;
-                y_I_new <= '0;
+                y_i_new <= '0;
             end else begin
                 x_i_new <= x_new;
                 y_i_new <= y_new;

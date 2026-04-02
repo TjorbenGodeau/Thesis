@@ -19,7 +19,7 @@ module compute_tile
     // J bitcells: N_P oscillators x IC_BITS_P bits each
     for (genvar n = 0; n < N_P; n++) begin : gen_osc
         for (genvar b = 0; b < IC_BITS_P; b++) begin : gen_bit
-        8t_bitcell u_J (
+        dsb_8t_bitcell u_J (
             .clk (clk),
             .wwl (wwl),
             .wbl (wbl_J[n*IC_BITS_P + b]),
@@ -32,7 +32,7 @@ module compute_tile
 
     // Sign bitcells: one per oscillator
     for (genvar n = 0; n < N_P; n++) begin : gen_sign
-        8t_bitcell u_s (
+        dsb_8t_bitcell u_s (
             .clk (clk),
             .wwl (wwl),
             .wbl (wbl_signs[n]),

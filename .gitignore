@@ -6,3 +6,11 @@ work/
 Thesis.cr.mti
 Thesis.mpf
 transcript
+.simvision/
+vivado.jou
+vivado.log
+waves.shm/
+xcelium.d/
+xrun.history
+xrun.key
+xrun.log

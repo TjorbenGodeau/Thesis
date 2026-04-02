@@ -47,7 +47,7 @@ module core
         .N_P (N_P),
         .IC_BITS_P (IC_BITS_P)
     ) u_tile (
-        .clke (clk),
+        .clk (clk),
         .precharge (precharge_r),
         .wwl (wwl),
         .wbl_J (wbl_J),
@@ -98,7 +98,7 @@ module core
     logic ph3_done;
     logic signed [XY_W_P-1:0] x_i_r, y_i_r;  // latched at start
     
-    dsb_update_unit #(
+    update_unit #(
         .XY_W_P(XY_W_P), 
         .XY_FRAC_P(XY_FRAC_P), 
         .A_BITS_P(A_BITS_P),

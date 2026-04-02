@@ -22,7 +22,7 @@ module dotprod_phase2
             for (int j = 0; j < N_P; j++) begin
                 automatic logic [IC_BITS_P-1:0] xnor_word = xnor_J[j*IC_BITS_P +: IC_BITS_P];
                 // sign-equality gate
-                automatic logic [IC_BITS_P-1:0] corrected = dign_eq[j] ? xnor_word : ~xnor_word;
+                automatic logic [IC_BITS_P-1:0] corrected = sign_eq[j] ? xnor_word : ~xnor_word;
                 // sign-extend and axxumulate
                 acc += ACCUM_W_P'(signed'(corrected));
             end
