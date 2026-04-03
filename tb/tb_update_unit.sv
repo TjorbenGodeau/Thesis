@@ -63,7 +63,7 @@ module tb_update_unit;
   logic signed [XY_T-1:0]      x_i_new, y_i_new;
   logic                         done;
  
-  update_unit #(
+  dsb_update_unit #(
     .XY_W_P(XY_T), .XY_FRAC_P(FRAC_T), .A_BITS_P(A_T),
     .ACCUM_W_P(ACC_T), .PROD_W_P(PROD_T)
   ) dut (.*);
@@ -76,9 +76,9 @@ module tb_update_unit;
     input  real x_r, y_r, Jx_r, a_r, dt_r, c0_r,
     output real x_exp, y_exp
   );
-    real force_val, y_n, x_n;
-    force_val = -a_r * x_r + c0_r * Jx_r;
-    y_n   = y_r + dt_r * force_val;
+    real force, y_n, x_n;
+    force = -a_r * x_r + c0_r * Jx_r;
+    y_n   = y_r + dt_r * force;
     x_n   = x_r + dt_r * y_n;
     if      (x_n >  1.0) begin x_exp =  1.0; y_exp = 0.0; end
     else if (x_n < -1.0) begin x_exp = -1.0; y_exp = 0.0; end
@@ -156,23 +156,32 @@ module tb_update_unit;
     repeat(2) @(posedge clk);
  
     // T6.1 Zero force: Jx=0, a=0; y=0.1 so x drifts by dt*y = 0.1*0.1 = 0.01
+    //      y unchanged = 0.1; x_new = 0.5 + 0.01 = 0.51
     fire_and_check("T6.1 zero_force",   0.5,  0.1,  0.0, 0.0);
  
-    // T6.2 Positive Jx: force = c0*Jx = 0.5*4 = 2; Δy = dt*2 = 0.2;
-    //      y_new=0.2; x_new = 0.1 + dt*0.2 = 0.12
+    // T6.2 Positive Jx=4 (integer count, J=+1 × 4 neighbours):
+    //      c0jx_real = c0 × Jx = 0.5 × 4 = 2.0; force = 2.0
+    //      Δy = dt × force = 0.1 × 2.0 = 0.2; y_new = 0.2
+    //      x_new = 0.1 + dt × y_new = 0.1 + 0.02 = 0.12
+    //      NOTE: Jx_i is a plain integer count from dotprod_phase2.
+    //      The module internally computes c0jx = Jx_i × c0_fp (no >>XY_FRAC).
     fire_and_check("T6.2 pos_Jx",       0.1,  0.0,  4.0, 0.0);
  
-    // T6.3 Negative x, a=0.5: force = -0.5*(-0.3) + 0.5*2 = 0.15+1 = 1.15
-    //      Δy = 0.1*1.15 = 0.115; y_new=0.115; x_new = -0.3+0.0115 = -0.2885
+    // T6.3 Negative x, a=0.5, Jx=2:
+    //      force = -0.5×(-0.3) + 0.5×2 = 0.15 + 1.0 = 1.15
+    //      Δy = 0.1×1.15 = 0.115; y_new = 0.115
+    //      x_new = -0.3 + 0.1×0.115 = -0.2885
     fire_and_check("T6.3 neg_x",       -0.3,  0.0,  2.0, 0.5);
  
     // T6.4 Wall hit positive: x=0.9, y=5, Jx=4, a=0
-    //      force=0.5*4=2; Δy=0.5; y_new=5.5; x_new=0.9+0.55=1.45 → clamp
+    //      force = 0.5×4 = 2.0; Δy = 0.2; y_new = 5.2
+    //      x_new = 0.9 + 0.1×5.2 = 1.42 → wall clamp
     //      expected: x=+1.0, y=0
     fire_and_check("T6.4 wall_pos",     0.9,  5.0,  4.0, 0.0);
  
     // T6.5 Wall hit negative: x=-0.9, y=-5, Jx=-4, a=0
-    //      force=0.5*(-4)=-2; Δy=-0.2; y_new=-5.2; x_new=-0.9-0.52=-1.42 → clamp
+    //      force = 0.5×(-4) = -2.0; Δy = -0.2; y_new = -5.2
+    //      x_new = -0.9 + 0.1×(-5.2) = -1.42 → wall clamp
     //      expected: x=-1.0, y=0
     fire_and_check("T6.5 wall_neg",    -0.9, -5.0, -4.0, 0.0);
  
