@@ -13,38 +13,33 @@ module tb_core;
   import dsb_pkg::*;
   import tb_helpers::*;
  
-  localparam int unsigned N_T = 4;
-  localparam int unsigned IC_T = 8;
-  localparam int unsigned XY_T = XY_W;
-  localparam int unsigned FT = XY_FRAC;
-  localparam int unsigned AT = A_BITS;
-  localparam int unsigned ACCT = ACCUM_W;
+  localparam int unsigned N_T   = 4;
+  localparam int unsigned IC_T  = 8;
+  localparam int unsigned XY_T  = XY_W;
+  localparam int unsigned FT    = XY_FRAC;
+  localparam int unsigned AT    = A_BITS;
+  localparam int unsigned ACCT  = ACCUM_W;
   localparam int unsigned PRODT = PROD_W;
  
-  localparam int unsigned DT_FP = 1638;
-  localparam int unsigned C0_FP = 8192;
-  localparam int unsigned A0_FP = 32768;
+  localparam int unsigned DT_FP  = 1638;
+  localparam int unsigned C0_FP  = 8192;
+  localparam int unsigned A0_FP  = 32768;
  
   logic clk = 0, rst_n;
   always #5 clk = ~clk;
  
-  logic start, wwl;
-  logic [N_T*IC_T-1:0] wbl_J;
-  logic [N_T-1:0] wbl_signs;
-  logic signed [XY_T-1:0] x_i, y_i;
-  logic [AT-1:0] a_m;
-  logic [FT-1:0] dt_fp, c0_fp;
-  logic signed [XY_T-1:0] x_i_new, y_i_new;
-  logic sign_xi_new, done;
+  logic                       start, wwl;
+  logic [N_T*IC_T-1:0]       wbl_J;
+  logic [N_T-1:0]             wbl_signs;
+  logic signed [XY_T-1:0]    x_i, y_i;
+  logic [AT-1:0]              a_m;
+  logic [FT-1:0]              dt_fp, c0_fp;
+  logic signed [XY_T-1:0]    x_i_new, y_i_new;
+  logic                       sign_xi_new, done;
  
-  dsb_core #(
-    .N_P(N_T), 
-    .IC_BITS_P(IC_T), 
-    .XY_W_P(XY_T), 
-    .XY_FRAC_P(FT),
-    .A_BITS_P(AT), 
-    .ACCUM_W_P(ACCT), 
-    .PROD_W_P(PRODT)
+  core #(
+    .N_P(N_T), .IC_BITS_P(IC_T), .XY_W_P(XY_T), .XY_FRAC_P(FT),
+    .A_BITS_P(AT), .ACCUM_W_P(ACCT), .PROD_W_P(PRODT)
   ) dut (.*);
  
   int pass_cnt = 0, fail_cnt = 0;
@@ -114,8 +109,9 @@ module tb_core;
     end
  
     // T7.3 Wall hit: x near +1, large positive Jx, a=0
-    //      → x should clamp to +ONE_FP, y=0
-    run_one({4{8'h01}}, 4'b1111, to_fp(0.95), '0, '0);
+    //      Jx=4, c0=0.5 → force=2.0; Δy=dt×force=0.1×2.0=0.2; y_new=0.2
+    //      x_new = 0.99 + 0.1×0.2 = 1.01 > 1.0 → wall clamp → x=+1.0, y=0
+    run_one({4{8'h01}}, 4'b1111, to_fp(0.99), '0, '0);
     begin
       real x_got;
       real y_got;
@@ -135,10 +131,11 @@ module tb_core;
     begin
       logic signed [XY_T-1:0] x1;
       logic signed [XY_T-1:0] y1;
+      real x2;
+
       x1 = x_i_new;
       y1 = y_i_new;
       run_one({4{8'h01}}, 4'b1111, x1, y1, '0);
-      real x2;
       x2 = from_fp(x_i_new);
       if (x2 > from_fp(x1)) begin
         $display("  PASS [T7.4 sequential] x1=%.4f x2=%.4f", from_fp(x1), x2);

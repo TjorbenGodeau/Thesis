@@ -63,7 +63,7 @@ module tb_update_unit;
   logic signed [XY_T-1:0]      x_i_new, y_i_new;
   logic                         done;
  
-  dsb_update_unit #(
+  update_unit #(
     .XY_W_P(XY_T), .XY_FRAC_P(FRAC_T), .A_BITS_P(A_T),
     .ACCUM_W_P(ACC_T), .PROD_W_P(PROD_T)
   ) dut (.*);
@@ -76,9 +76,9 @@ module tb_update_unit;
     input  real x_r, y_r, Jx_r, a_r, dt_r, c0_r,
     output real x_exp, y_exp
   );
-    real force, y_n, x_n;
-    force = -a_r * x_r + c0_r * Jx_r;
-    y_n   = y_r + dt_r * force;
+    real force_val, y_n, x_n;
+    force_val = -a_r * x_r + c0_r * Jx_r;
+    y_n   = y_r + dt_r * force_val;
     x_n   = x_r + dt_r * y_n;
     if      (x_n >  1.0) begin x_exp =  1.0; y_exp = 0.0; end
     else if (x_n < -1.0) begin x_exp = -1.0; y_exp = 0.0; end
