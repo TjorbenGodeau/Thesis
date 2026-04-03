@@ -299,23 +299,27 @@ module tb_dsb_integration;
 
 
     // =========================================================================
-    // S2 — Anti-ferromagnetic J=−1 (upper-triangular)
-    //       Competing spins → expect alternating pattern 1010 or 0101.
-    //       Uses NSTEP_AFM=100: the AFM energy landscape requires more steps
-    //       to bifurcate cleanly than the ferromagnetic case.
+    // S2 — Anti-ferromagnetic J=−1 (fully symmetric, N=4)
+    //       Symmetric J ensures every oscillator receives equal coupling force.
+    //       Upper-triangular J would leave row 3 all-zero (no force on osc 3),
+    //       preventing bifurcation. Full symmetric matrix:
+    //         J = [ 0  −1  −1  −1 ]
+    //             [−1   0  −1  −1 ]
+    //             [−1  −1   0  −1 ]
+    //             [−1  −1  −1   0 ]
+    //       Expected ground state: alternating pattern 1010 or 0101.
     // =========================================================================
     $display("\n=== S2: Anti-ferromagnetic J=−1 (N=%0d, Nstep=%0d) ===",
              TB_N, NSTEP_AFM);
     hard_reset(NSTEP_AFM);
 
-    write_J(0, {Jn, Jn, Jn, Jz});
-    write_J(1, {Jn, Jn, Jz, Jz});
-    write_J(2, {Jn, Jz, Jz, Jz});
-    write_J(3, {TB_N*TB_IC{1'b0}});
+    // Full symmetric AFM: every row has Jn in all off-diagonal positions
+    write_J(0, {Jn, Jn, Jn, Jz});   // J[0] = [0  −1 −1 −1]
+    write_J(1, {Jn, Jn, Jz, Jn});   // J[1] = [−1  0 −1 −1]
+    write_J(2, {Jn, Jz, Jn, Jn});   // J[2] = [−1 −1  0 −1]
+    write_J(3, {Jz, Jn, Jn, Jn});   // J[3] = [−1 −1 −1  0]
 
-    // Stronger alternating nudge: larger magnitude seeds the correct AFM ground
-    // state more reliably and gives the algorithm an unambiguous starting point.
-    //   osc 0 (+), osc 1 (−), osc 2 (+), osc 3 (−)  → expect signs 1010
+    // Alternating nudge aligned with the 1010 ground state
     write_xy(0,  0.08, 0.0);
     write_xy(1, -0.08, 0.0);
     write_xy(2,  0.08, 0.0);
