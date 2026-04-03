@@ -50,14 +50,14 @@ module update_unit
     // force  = −a·x + c0·Jx  is the net drive on momentum.
     // Multiplying by dt_fp and shifting gives Δy in Q(XY_INT).(XY_FRAC_P).
     logic signed [XY_W_P-1:0]     neg_ax;
-    logic signed [XY_W_P-1:0]     force;
+    logic signed [XY_W_P-1:0]     force_val;
     logic signed [2*XY_W_P-1:0]   dy_full;
     logic signed [XY_W_P-1:0]     delta_y;
     
     always_comb begin
         neg_ax  = -ax_shifted;
-        force   = neg_ax + c0jx;
-        dy_full = $signed(force) * $signed({1'b0, dt_fp});
+        force_val = neg_ax + c0jx;
+        dy_full = $signed(force_val) * $signed({1'b0, dt_fp});
         delta_y = XY_W_P'(dy_full >>> XY_FRAC_P);
     end
     
