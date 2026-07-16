@@ -34,7 +34,7 @@ package dsb_sparse_pkg;
     // -------------------------------------------------------------------------
     // Number of sparse-entry slots per physical compute-memory row.
     // Tune this to match your 8T array row width.
-    parameter int unsigned K_MAX = 4;
+    parameter int unsigned K_MAX = 32;
 
     // Maximum non-zeros across the ENTIRE matrix (size the CSR entry store).
     // Default: assume at most N*(N-1)/2 unique edges for a dense upper triangle.
