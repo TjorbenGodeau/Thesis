@@ -1,0 +1,18 @@
+xrun \
+    -gui \
+    -debug \
+    -linedebug \
+    $WORK_DIR/rtl/dsb_pkg.sv \
+    $WORK_DIR/rtl/dsb_sparse_pkg.sv \
+    $WORK_DIR/tb/tb_simple.sv \
+    $WORK_DIR/rtl/sparse_dsb_array.sv \
+    $WORK_DIR/rtl/sparse_core.sv \
+    $WORK_DIR/rtl/update_unit.sv \
+    $WORK_DIR/rtl/dotprod_phase2_sparse.sv \
+    $WORK_DIR/rtl/sparse_compute_memory.sv \
+    $WORK_DIR/rtl/8t_bitcell.sv \
+    $WORK_DIR/rtl/sparse_load_controller.sv \
+    $WORK_DIR/rtl/sparsity_scanner.sv \
+    $WORK_DIR/rtl/csr_index_store.sv \
+    $WORK_DIR/rtl/main_memory.sv \
+    $WORK_DIR/rtl/schedule.sv \
