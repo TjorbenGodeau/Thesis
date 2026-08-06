@@ -1,38 +1,49 @@
 // =============================================================================
-// sparsity_scanner.sv
+// sparsity_scanner.sv   (v3 — edge-list ingest, Gset scale)
 //
-// One-shot FSM that runs at startup (before the dSB algorithm begins).
-// It walks every element of the J matrix in main_memory, identifies non-zero
-// entries, and builds the CSR index store (row_ptr + entry arrays).
+// ─────────────────────────────────────────────────────────────────────────────
+// WHY THIS CHANGED FROM THE PROTOTYPE
+// ─────────────────────────────────────────────────────────────────────────────
+// The prototype scanned a DENSE N×N grid (N*N reads) looking for non-zero
+// J[i][j].  At Gset scale that is N*N = 400,000,000 reads for N=20,000 —
+// completely impractical, and pointless since we now store only edges.
 //
-// Operation sequence
-// ------------------
-//  1. Assert start=1 for one cycle after main_memory has been fully loaded.
-//  2. The scanner issues N*N reads to main_memory (one per J[i][j] word).
-//  3. For each non-zero J[i][j]:
-//       - Writes a CSR entry: {col=j, main_addr = i*N+j} to entry_mem[nnz_ptr]
-//       - Increments nnz_ptr
-//  4. When column j==N-1 for row i, writes row_ptr[i] = {row_start, row_count}
-//  5. After all N rows, asserts done=1 and holds it.
+// This version instead walks the EDGE LIST ONCE (num_edges reads, typically
+// a few tens of thousands even for the largest Gset instance) and builds the
+// CSR store directly.  Since Gset graphs are undirected, each edge (i,j,w)
+// contributes to BOTH row i (entry pointing to j) and row j (entry pointing
+// to i) of the symmetric J matrix.
+//
+// THE HARD PART — building row_ptr without knowing row order in advance
+// -----------------------------------------------------------------------
+// Edges arrive in arbitrary order (whatever order the Gset file lists them).
+// CSR requires each row's entries to be CONTIGUOUS in the entry array, but
+// we don't know how many entries row i will have until we've seen every
+// edge.  This module solves it in TWO PASSES over the edge list:
+//
+//   PASS 1 (COUNT)   : walk all edges, increment degree[i] and degree[j]
+//                       for each edge (no CSR writes yet)
+//   FINALIZE          : convert degree[] into row_ptr[] start offsets via
+//                       a running prefix sum (row_ptr[i].start = sum of
+//                       degree[0..i-1]); count field = degree[i]
+//   PASS 2 (PLACE)    : walk all edges again; for edge (i,j,w) write the
+//                       entry for row i at  (row_ptr[i].start + fill[i])
+//                       and increment fill[i]; same for row j with (j,i,w).
+//                       fill[] is a separate write-cursor array, reset to 0
+//                       after FINALIZE, incremented as each row fills up.
+//
+// This is the standard two-pass CSR construction algorithm (counting sort
+// style) and requires only O(N) extra storage (degree/fill arrays) and
+// O(2 * num_edges) total reads — entirely practical even at Gset's largest
+// scale (82,918 directed entries for G63/G64).
+//
+// degree[] and fill[] are stored as internal block RAM (N entries each,
+// ROW_COUNT_W bits wide) — sized for N up to dsb_pkg::N.
 //
 // Timing
 // ------
-//  main_memory has 1-cycle read latency (registered output).
-//  State sequence per element:
-//    SCAN_READ   → issue rd_en + rd_addr
-//    SCAN_WAIT   → absorb the 1-cycle BRAM latency
-//    SCAN_EVAL   → rd_valid=1; check for non-zero; optionally write CSR entry
-//    SCAN_NEXTCOL→ advance column (or go to SCAN_NEXTROW if j==N-1)
-//    SCAN_NEXTROW→ write row_ptr, advance row, back to SCAN_READ
-//
-// Outputs
-// -------
-//  To main_memory   : rd_en, rd_addr
-//  To csr_index_store:
-//    rp_wr_en, rp_wr_row, rp_wr_data   (row pointer writes)
-//    en_wr_en, en_wr_addr, en_wr_data  (entry writes)
-//  done  : high after the full matrix has been scanned
-//  nnz_total : total number of non-zero entries found
+//  main_memory has 1-cycle read latency (registered output) — same pipeline
+//  shape as the prototype scanner: READ -> WAIT -> (eval/write) -> next.
 // =============================================================================
 
 module sparsity_scanner
@@ -51,7 +62,17 @@ module sparsity_scanner
 )(
     input  logic clk,
     input  logic rst_n,
-    input  logic start,          // pulse high for one cycle to begin scan
+    input  logic start,                 // pulse high for one cycle to begin
+
+    // ── Number of edges actually present in main_memory's edge-list region ───
+    // (Gset instances vary widely in edge count; this lets one build support
+    //  every instance without recompiling MAX_EDGES per file.)
+    input  logic [CSR_ADDR_W_P-1:0]  num_edges,
+
+    // ── Active oscillator count for THIS run (<= N_P) ─────────────────────────
+    // Allows running an 800-node Gset instance inside an N_P=20000 build
+    // without wasting time finalizing unused rows.
+    input  logic [COL_IDX_W_P-1:0]   active_n,
 
     // ── main_memory read port ─────────────────────────────────────────────────
     output logic                     mm_rd_en,
@@ -70,144 +91,214 @@ module sparsity_scanner
 
     // ── Status ────────────────────────────────────────────────────────────────
     output logic                     done,
-    output logic [CSR_ADDR_W_P-1:0]  nnz_total    // total non-zeros found
+    output logic [CSR_ADDR_W_P-1:0]  nnz_total    // total directed CSR entries
 );
 
-    // ── Internal registers ────────────────────────────────────────────────────
-    scan_state_t state;
-
-    logic [COL_IDX_W_P-1:0]  row_i;       // current row   (0..N-1)
-    logic [COL_IDX_W_P-1:0]  col_j;       // current col   (0..N-1)
-    logic [CSR_ADDR_W_P-1:0] nnz_ptr;     // flat write pointer into entry_mem
-    logic [CSR_ADDR_W_P-1:0] row_start;   // entry_mem address where this row began
-
-    // ── Combinational: main memory address of J[row_i][col_j] ─────────────────
-    logic [MAIN_ADDR_WP-1:0] j_addr;
-    assign j_addr = MAIN_ADDR_WP'(row_i * N_P + col_j);
-
-    // ── Combinational: non-zero test ──────────────────────────────────────────
-    // J values are IC_BITS_P-bit signed words stored in MAIN_WORD_WP-wide cells.
-    // Non-zero iff the lower IC_BITS_P bits are not all zero.
-    logic is_nonzero;
-    assign is_nonzero = |mm_rd_data[IC_BITS_P-1:0];
+    // ── Internal degree / fill / start arrays (one entry per oscillator) ──────
+    logic [ROW_COUNT_WP-1:0] degree [0:N_P-1];   // pass 1 output
+    logic [CSR_ADDR_W_P-1:0] rstart [0:N_P-1];   // finalize output (prefix sum)
+    logic [ROW_COUNT_WP-1:0] fill   [0:N_P-1];   // pass 2 write cursor
 
     // ── FSM ───────────────────────────────────────────────────────────────────
+    typedef enum logic [3:0] {
+        ST_IDLE,
+        ST_CLEAR,         // zero degree[]/fill[] for active_n rows
+        ST_P1_READ, ST_P1_WAIT, ST_P1_ACC,         // pass 1: count degrees
+        ST_FIN_INIT,                                // begin prefix sum
+        ST_FIN_STEP,                                // one prefix-sum step per row
+        ST_FIN_WRROWPTR,                            // write row_ptr[i] to CSR store
+        ST_P2_READ, ST_P2_WAIT, ST_P2_PLACE_FWD, ST_P2_PLACE_REV, // pass 2: place entries
+        ST_DONE
+    } scan2_state_t;
+
+    scan2_state_t state;
+
+    logic [CSR_ADDR_W_P-1:0] edge_idx;     // current edge index (0..num_edges-1)
+    logic [COL_IDX_W_P-1:0]  clear_idx;    // row index used during CLEAR / FINALIZE
+    logic [CSR_ADDR_W_P-1:0] running_sum;  // running prefix sum during FINALIZE
+
+    // Latched edge fields (unpacked from mm_rd_data)
+    logic [COL_IDX_W_P-1:0] e_row, e_col;
+    logic [MAIN_ADDR_WP-1:0] e_addr;       // address of this edge word (= edge_idx)
+
+    // ── Edge word unpack ──────────────────────────────────────────────────────
+    // word = {row[COL_IDX_W-1:0], col[COL_IDX_W-1:0], weight[IC_BITS-1:0]}
+    function automatic logic [COL_IDX_W_P-1:0] unpack_row(logic [MAIN_WORD_WP-1:0] w);
+        return w[MAIN_WORD_WP-1 -: COL_IDX_W_P];
+    endfunction
+    function automatic logic [COL_IDX_W_P-1:0] unpack_col(logic [MAIN_WORD_WP-1:0] w);
+        return w[IC_BITS_P +: COL_IDX_W_P];
+    endfunction
+
     always_ff @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
-            state      <= SCAN_IDLE;
-            row_i      <= '0;
-            col_j      <= '0;
-            nnz_ptr    <= '0;
-            row_start  <= '0;
-            nnz_total  <= '0;
-            done       <= 1'b0;
-
-            mm_rd_en   <= 1'b0;
-            mm_rd_addr <= '0;
-
-            rp_wr_en   <= 1'b0;
-            rp_wr_row  <= '0;
-            rp_wr_data <= '0;
-
-            en_wr_en   <= 1'b0;
-            en_wr_addr <= '0;
-            en_wr_data <= '0;
-
+            state        <= ST_IDLE;
+            edge_idx     <= '0;
+            clear_idx    <= '0;
+            running_sum  <= '0;
+            done         <= 1'b0;
+            nnz_total    <= '0;
+            mm_rd_en     <= 1'b0;
+            mm_rd_addr   <= '0;
+            rp_wr_en     <= 1'b0;
+            rp_wr_row    <= '0;
+            rp_wr_data   <= '0;
+            en_wr_en     <= 1'b0;
+            en_wr_addr   <= '0;
+            en_wr_data   <= '0;
         end else begin
-            // Default pulse signals low every cycle
-            mm_rd_en  <= 1'b0;
-            rp_wr_en  <= 1'b0;
-            en_wr_en  <= 1'b0;
+            // Default pulses low
+            mm_rd_en <= 1'b0;
+            rp_wr_en <= 1'b0;
+            en_wr_en <= 1'b0;
 
             unique case (state)
 
-                // ── Wait for start pulse ──────────────────────────────────────
-                SCAN_IDLE: begin
+                // ── Wait for start ────────────────────────────────────────────
+                ST_IDLE: begin
                     if (start) begin
-                        row_i     <= '0;
-                        col_j     <= '0;
-                        nnz_ptr   <= '0;
-                        row_start <= '0;
+                        clear_idx <= '0;
                         done      <= 1'b0;
-                        state     <= SCAN_READ;
+                        state     <= ST_CLEAR;
                     end
                 end
 
-                // ── Issue read to main_memory ─────────────────────────────────
-                SCAN_READ: begin
-                    mm_rd_en   <= 1'b1;
-                    mm_rd_addr <= j_addr;
-                    state      <= SCAN_WAIT;
-                end
-
-                // ── Wait one cycle for BRAM output register ───────────────────
-                SCAN_WAIT: begin
-                    // mm_rd_valid will be high next cycle
-                    state <= SCAN_EVAL;
-                end
-
-                // ── Evaluate the returned word ────────────────────────────────
-                SCAN_EVAL: begin
-                    if (mm_rd_valid && is_nonzero) begin
-                        // Write CSR entry: {col_j, j_addr}
-                        en_wr_en   <= 1'b1;
-                        en_wr_addr <= nnz_ptr;
-                        en_wr_data <= {col_j, j_addr};
-                        nnz_ptr    <= nnz_ptr + 1;
-                    end
-
-                    // Decide next: last column of this row?
-                    if (col_j == COL_IDX_W_P'(N_P - 1))
-                        state <= SCAN_NEXTROW;
-                    else
-                        state <= SCAN_NEXTCOL;
-                end
-
-                // ── Advance column ────────────────────────────────────────────
-                SCAN_NEXTCOL: begin
-                    col_j <= col_j + 1;
-                    state <= SCAN_READ;
-                end
-
-                // ── Close row: write row_ptr, check if last row ───────────────
-                SCAN_NEXTROW: begin
-                    // row_count for this row = nnz_ptr - row_start
-                    // (nnz_ptr may have just been incremented in SCAN_EVAL,
-                    //  so we use the post-increment value)
-                    rp_wr_en   <= 1'b1;
-                    rp_wr_row  <= row_i;
-                    rp_wr_data <= {row_start,
-                                   ROW_COUNT_WP'(nnz_ptr - row_start)};
-
-                    if (row_i == COL_IDX_W_P'(N_P - 1)) begin
-                        // Last row done
-                        nnz_total <= nnz_ptr;
-                        state     <= SCAN_DONE;
+                // ── Clear degree[]/fill[] for all active rows ─────────────────
+                ST_CLEAR: begin
+                    degree[clear_idx] <= '0;
+                    fill[clear_idx]   <= '0;
+                    if (clear_idx == COL_IDX_W_P'(active_n - 1)) begin
+                        edge_idx <= '0;
+                        state    <= ST_P1_READ;
                     end else begin
-                        // Advance to next row
-                        row_start <= nnz_ptr;
-                        row_i     <= row_i + 1;
-                        col_j     <= '0;
-                        state     <= SCAN_READ;
+                        clear_idx <= clear_idx + 1;
                     end
+                end
+
+                // ════════════════════════════════════════════════════════════
+                // PASS 1 — count degree[i] and degree[j] for every edge
+                // ════════════════════════════════════════════════════════════
+                ST_P1_READ: begin
+                    if (edge_idx == num_edges) begin
+                        // All edges counted -> begin prefix sum
+                        clear_idx   <= '0;
+                        running_sum <= '0;
+                        state       <= ST_FIN_INIT;
+                    end else begin
+                        mm_rd_en   <= 1'b1;
+                        mm_rd_addr <= MAIN_ADDR_WP'(MAIN_EDGE_BASE + edge_idx);
+                        state      <= ST_P1_WAIT;
+                    end
+                end
+
+                ST_P1_WAIT: state <= ST_P1_ACC;
+
+                ST_P1_ACC: begin
+                    if (mm_rd_valid) begin
+                        // NOTE: assumes no self-loops (r != c), which holds for
+                        // all standard Gset instances. If r==c the two
+                        // non-blocking writes below would both target
+                        // degree[r], and only the LAST one in program order
+                        // committing is not guaranteed across simulators --
+                        // this is intentionally left unguarded since Gset
+                        // graphs never contain self-loops.
+                        automatic logic [COL_IDX_W_P-1:0] r, c;
+                        r = unpack_row(mm_rd_data);
+                        c = unpack_col(mm_rd_data);
+                        degree[r] <= degree[r] + 1;
+                        degree[c] <= degree[c] + 1;
+                    end
+                    edge_idx <= edge_idx + 1;
+                    state    <= ST_P1_READ;
+                end
+
+                // ════════════════════════════════════════════════════════════
+                // FINALIZE — prefix sum: rstart[i] = sum(degree[0..i-1])
+                // ════════════════════════════════════════════════════════════
+                ST_FIN_INIT: state <= ST_FIN_STEP;
+
+                ST_FIN_STEP: begin
+                    rstart[clear_idx] <= running_sum;
+                    running_sum       <= running_sum + CSR_ADDR_W_P'(degree[clear_idx]);
+                    state             <= ST_FIN_WRROWPTR;
+                end
+
+                ST_FIN_WRROWPTR: begin
+                    // Write row_ptr[clear_idx] = {rstart[clear_idx], degree[clear_idx]}
+                    rp_wr_en   <= 1'b1;
+                    rp_wr_row  <= clear_idx;
+                    rp_wr_data <= {rstart[clear_idx], ROW_COUNT_WP'(degree[clear_idx])};
+
+                    if (clear_idx == COL_IDX_W_P'(active_n - 1)) begin
+                        // Prefix sum complete; running_sum now = total nnz
+                        nnz_total <= running_sum;
+                        edge_idx  <= '0;
+                        state     <= ST_P2_READ;
+                    end else begin
+                        clear_idx <= clear_idx + 1;
+                        state     <= ST_FIN_STEP;
+                    end
+                end
+
+                // ════════════════════════════════════════════════════════════
+                // PASS 2 — place each edge's two directed entries
+                // ════════════════════════════════════════════════════════════
+                ST_P2_READ: begin
+                    if (edge_idx == num_edges) begin
+                        state <= ST_DONE;
+                    end else begin
+                        mm_rd_en   <= 1'b1;
+                        mm_rd_addr <= MAIN_ADDR_WP'(MAIN_EDGE_BASE + edge_idx);
+                        state      <= ST_P2_WAIT;
+                    end
+                end
+
+                ST_P2_WAIT: state <= ST_P2_PLACE_FWD;
+
+                // Place forward entry: row i -> col j
+                ST_P2_PLACE_FWD: begin
+                    if (mm_rd_valid) begin
+                        automatic logic [COL_IDX_W_P-1:0] row_v, col_v;
+                        automatic logic [CSR_ADDR_W_P-1:0] dest_addr;
+                        row_v = unpack_row(mm_rd_data);
+                        col_v = unpack_col(mm_rd_data);
+
+                        e_row  <= row_v;
+                        e_col  <= col_v;
+                        e_addr <= MAIN_ADDR_WP'(MAIN_EDGE_BASE + edge_idx);
+
+                        dest_addr  = CSR_ADDR_W_P'(rstart[row_v] + fill[row_v]);
+                        en_wr_en   <= 1'b1;
+                        en_wr_addr <= dest_addr;
+                        en_wr_data <= {col_v, MAIN_ADDR_WP'(MAIN_EDGE_BASE + edge_idx)};
+                        fill[row_v] <= fill[row_v] + 1;
+                    end
+                    state <= ST_P2_PLACE_REV;
+                end
+
+                // Place reverse entry: row j -> col i  (same edge, symmetric)
+                ST_P2_PLACE_REV: begin
+                    en_wr_en   <= 1'b1;
+                    en_wr_addr <= CSR_ADDR_W_P'(rstart[e_col] + fill[e_col]);
+                    en_wr_data <= {e_row, e_addr};
+                    fill[e_col] <= fill[e_col] + 1;
+
+                    edge_idx <= edge_idx + 1;
+                    state    <= ST_P2_READ;
                 end
 
                 // ── Done ──────────────────────────────────────────────────────
-                SCAN_DONE: begin
+                ST_DONE: begin
                     done <= 1'b1;
-                    // Remain here until reset or a new start pulse
                     if (start) begin
-                        // Allow re-scan (e.g. if problem is reloaded)
-                        row_i     <= '0;
-                        col_j     <= '0;
-                        nnz_ptr   <= '0;
-                        row_start <= '0;
+                        // Allow re-scan for a new problem instance
+                        clear_idx <= '0;
                         done      <= 1'b0;
-                        state     <= SCAN_READ;
+                        state     <= ST_CLEAR;
                     end
                 end
 
-                default: state <= SCAN_IDLE;
+                default: state <= ST_IDLE;
 
             endcase
         end
