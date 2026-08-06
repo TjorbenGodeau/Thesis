@@ -4,9 +4,7 @@ xrun \
     -linedebug \
     $WORK_DIR/rtl/dsb_pkg.sv \
     $WORK_DIR/rtl/dsb_sparse_pkg.sv \
-
     $WORK_DIR/tb/tb_random_problem.sv \
-
     $WORK_DIR/rtl/sparse_dsb_array.sv \
     $WORK_DIR/rtl/sparse_core.sv \
     $WORK_DIR/rtl/update_unit.sv \
