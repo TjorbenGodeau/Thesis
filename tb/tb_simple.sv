@@ -156,9 +156,9 @@ module tb_simple;
     // Format: {row, col, weight=1}
     typedef struct { int r, c, w; } edge_t;
     edge_t EDGES [0:NUM_EDGES-1] = '{
-        '{0,1,1}, '{0,2,1}, '{1,3,1}, '{2,3,1},
-        '{3,4,1}, '{3,5,1}, '{4,6,1}, '{5,6,1},
-        '{6,7,1}, '{0,7,1}
+        '{0,1,-1}, '{0,2,-1}, '{1,3,-1}, '{2,3,-1},
+        '{3,4,-1}, '{3,5,-1}, '{4,6,-1}, '{5,6,-1},
+        '{6,7,-1}, '{0,7,-1}
     };
 
     // ── Initial x values (small, alternating sign to break symmetry) ──────────
