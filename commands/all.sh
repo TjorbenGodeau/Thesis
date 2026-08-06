@@ -23,5 +23,5 @@ xrun \
     $WORK_DIR/rtl/sparse_core.sv \
     $WORK_DIR/rtl/sparse_dsb_array.sv \
 
-     
+    $WORK_DIR/tb/tb_random_problem.sv \
     

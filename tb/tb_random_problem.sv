@@ -78,7 +78,7 @@ module tb_random_problem;
     localparam int C0_FP = 410;
 
     // ── Clock / reset ─────────────────────────────────────────────────────────
-    logic clk   = 1'b0;
+    logic clk   = 0;
     logic rst_n = 1'b0;
     always #5 clk = ~clk;
 
