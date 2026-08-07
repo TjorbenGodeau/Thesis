@@ -53,14 +53,14 @@ module sparse_compute_memory
 
     // ── Write port (load new chunk) ───────────────────────────────────────────
     input  logic                      wr_en,
-    input  logic [$clog2(K_MAX)-1:0]  wr_slot,
+    input  logic [$clog2(K_MAX_P)-1:0]  wr_slot,
     input  logic [COL_W_P-1:0]        wr_col_idx,
     input  logic [IC_BITS_P-1:0]      wr_J,
     input  logic                      wr_sign_j,   // sign(x_j) at load time
 
     // ── Col-index read port ───────────────────────────────────────────────────
     input  logic                      rd_col_en,
-    input  logic [$clog2(K_MAX)-1:0]  rd_slot,
+    input  logic [$clog2(K_MAX_P)-1:0]  rd_slot,
     output logic [COL_W_P-1:0]        rd_col_idx,
     output logic                      rd_col_valid,
 
@@ -92,7 +92,7 @@ module sparse_compute_memory
     // wwl for slot k fires when wr_en && wr_slot==k
     for (genvar k = 0; k < K_MAX_P; k++) begin : gen_slot
         logic wwl_k;
-        assign wwl_k = wr_en && (wr_slot == $clog2(K_MAX)'(k));
+        assign wwl_k = wr_en && (wr_slot == $clog2(K_MAX_P)'(k));
 
         for (genvar b = 0; b < IC_BITS_P; b++) begin : gen_bit
             dsb_8t_bitcell u_J (
