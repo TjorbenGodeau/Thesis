@@ -52,7 +52,7 @@ module tb_8t_bitcell_array;
 
     task check_equal(input string msg, input logic [BITS-1:0] a, input logic [BITS-1:0] b);
         if (a !== b) begin
-            $error("%s: expected %h, got %h", msg, b, a);
+            $error("%s: expected %d, got %d", msg, b, a);
             error_count++;
         end else begin
             $display("  %s: OK", msg);
