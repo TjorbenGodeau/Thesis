@@ -10,4 +10,3 @@ xrun \
     $WORK_DIR/rtl/8t_bitcell.sv \
     $WORK_DIR/tb/tb_8t_bitcell.sv \
     -top tb_8t_bitcell \
-    -exit
