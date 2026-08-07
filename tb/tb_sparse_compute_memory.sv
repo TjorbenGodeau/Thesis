@@ -127,20 +127,17 @@ module tb_sparse_compute_memory;
         @(posedge clk);
         rd_col_en = 1; rd_slot = 0;
         @(posedge clk);
-        rd_col_en = 0;
-        // Wait for valid
-        @(posedge clk);
         check_equal("Read col_idx slot0", rd_col_idx, 2);
         if (rd_col_valid !== 1) $error("rd_col_valid not high");
+        rd_col_en = 0;
 
         // Read slot 2
         @(posedge clk);
         rd_col_en = 1; rd_slot = 2;
         @(posedge clk);
-        rd_col_en = 0;
-        @(posedge clk);
         check_equal("Read col_idx slot2", rd_col_idx, 3);
         if (rd_col_valid !== 1) $error("rd_col_valid not high");
+        rd_col_en = 0;
 
         // Read slot not written (slot 0 after another write? Not needed)
 
@@ -213,9 +210,9 @@ module tb_sparse_compute_memory;
         @(posedge clk);
         rd_col_en = 1; rd_slot = 1;
         @(posedge clk);
+        check_equal("Read col_idx slot1 after update", rd_col_idx, 5);
         rd_col_en = 0;
         @(posedge clk);
-        check_equal("Read col_idx slot1 after update", rd_col_idx, 5);
         // Compute with rwl == new sign_j (rwl=1 for slot1)
         rwl = 4'b0000; // set all 0 for simplicity, but set slot1=1
         rwl[1] = 1;
