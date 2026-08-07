@@ -165,12 +165,14 @@ module tb_sparse_compute_memory;
         rwl = 4'b0101;   // slot0=1, slot1=0, slot2=1, slot3=0
         #1;
         for (int s=0; s<K_MAX_T; s++) begin
+            // ★ All declarations first
             logic exp_s;
-            exp_s = expected_sign_eq(exp_sign[s], rwl[s]);
-            check_equal_bit($sformatf("slot%d sign_eq", s), rbl_signs[s], exp_s);
-            // J bits
             logic [IC_BITS_T-1:0] exp_j;
+            // Then assignments
+            exp_s = expected_sign_eq(exp_sign[s], rwl[s]);
             exp_j = expected_xnor_J(exp_J[s], rwl[s]);
+            // Then checks
+            check_equal_bit($sformatf("slot%d sign_eq", s), rbl_signs[s], exp_s);
             check_equal_vec($sformatf("slot%d J bits", s), get_rbl_J(s), exp_j);
         end
 
@@ -183,10 +185,10 @@ module tb_sparse_compute_memory;
         #1;
         for (int s=0; s<K_MAX_T; s++) begin
             logic exp_s;
-            exp_s = expected_sign_eq(exp_sign[s], rwl[s]);
-            check_equal_bit($sformatf("slot%d sign_eq", s), rbl_signs[s], exp_s);
             logic [IC_BITS_T-1:0] exp_j;
+            exp_s = expected_sign_eq(exp_sign[s], rwl[s]);
             exp_j = expected_xnor_J(exp_J[s], rwl[s]);
+            check_equal_bit($sformatf("slot%d sign_eq", s), rbl_signs[s], exp_s);
             check_equal_vec($sformatf("slot%d J bits", s), get_rbl_J(s), exp_j);
         end
 
@@ -225,10 +227,10 @@ module tb_sparse_compute_memory;
         #1;
         for (int s=0; s<K_MAX_T; s++) begin
             logic exp_s;
-            exp_s = expected_sign_eq(exp_sign[s], rwl[s]);
-            check_equal_bit($sformatf("slot%d sign_eq after update", s), rbl_signs[s], exp_s);
             logic [IC_BITS_T-1:0] exp_j;
+            exp_s = expected_sign_eq(exp_sign[s], rwl[s]);
             exp_j = expected_xnor_J(exp_J[s], rwl[s]);
+            check_equal_bit($sformatf("slot%d sign_eq after update", s), rbl_signs[s], exp_s);
             check_equal_vec($sformatf("slot%d J bits after update", s), get_rbl_J(s), exp_j);
         end
 
