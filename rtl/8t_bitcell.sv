@@ -1,3 +1,4 @@
+`timescale 1ns/1ps
 module dsb_8t_bitcell(
     input logic clk,        
     input logic wwl,        // write word line (normal mode)
