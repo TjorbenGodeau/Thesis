@@ -147,14 +147,15 @@ module tb_update_unit;
         @(posedge clk);
         start = 0;
 
-        // done should be high next cycle
-        @(posedge clk);
+        // Now done and outputs are valid (non-blocking assignments have taken effect)
         if (!done) $error("%s: done not asserted", label);
-        @(posedge clk);  // extra cycle for outputs to settle
 
-        // Check outputs
+        // Check outputs immediately (they are registered and updated on this edge)
         check_equal($sformatf("%s x_i_new", label), x_i_new, x_exp);
         check_equal($sformatf("%s y_i_new", label), y_i_new, y_exp);
+
+        // Optionally wait a cycle to avoid overlapping with next test
+        @(posedge clk);
     endtask
 
     // ── Test sequence ──────────────────────────────────────────────────────
@@ -170,24 +171,18 @@ module tb_update_unit;
         test_case("Test1", 0, 0, 0, 0, 0, 0);
 
         // ── Test 2: Pure momentum (a=1, dt=0.01, no Jx) ─────────────────────
-        // a=1 (Q0.14: 16384), dt=0.01 (164), x=100, y=0, Jx=0.
-        // Expected: dx = 0 (since y=0), dy = -a*x*dt = -100*0.01 = -1, y_pre = -1, x_pre = 100.
         $display("Test 2: Pure momentum (a=1, x=100)");
         test_case("Test2", 100, 0, 0, 16384, 164, 0);
 
         // ── Test 3: Jx coupling only (Jx=50, c0=0.5, dt=0.01, x=0, y=0) ─────
-        // force = c0*Jx = 0.5*50 = 25; dy = 25*0.01 = 0.25 → in Q0.14: 0.25*16384=4096
-        // y_pre = 4096 (in Q0.14), dx = y_pre*dt = 4096*0.01 = 40.96 ~ 40 (truncated)
-        // x_pre = 40.
         $display("Test 3: Jx coupling (Jx=50, c0=0.5)");
-        test_case("Test3", 0, 0, 50, 0, 164, 8192);  // 0.5*16384=8192
+        test_case("Test3", 0, 0, 50, 0, 164, 8192);
 
         // ── Test 4: Combined (a=0.5, Jx=-20, c0=0.3, dt=0.01, x=10, y=5) ────
         $display("Test 4: Combined case");
-        test_case("Test4", 10, 5, -20, 8192, 164, 4915); // 0.3*16384≈4915
+        test_case("Test4", 10, 5, -20, 8192, 164, 4915);
 
         // ── Test 5: Wall hit positive ─────────────────────────────────────
-        // Use dt=0.1 (1638), Jx=500, c0=1 → force=500, dy=50, x_pre=5 → hit +1.
         $display("Test 5: Wall hit positive with dt=0.1");
         test_case("Test5", 0, 0, 500, 0, 1638, 16384);
 
