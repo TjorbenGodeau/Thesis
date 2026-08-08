@@ -164,16 +164,18 @@ module tb_sparsity_scanner;
     endtask
 
     // Pack edge word: {row, col, weight}
+    // word = {row[COL_IDX_W-1:0], col[COL_IDX_W-1:0], weight[IC_BITS-1:0]}
+    // Pad with zeros at MSB if MAIN_WORD_W is wider.
     function automatic logic [MAIN_WORD_W_TEST-1:0] pack_edge(
         input int r, c, w
     );
-        // We need to build the packed word carefully.
-        // word = {row[COL_IDX_W-1:0], col[COL_IDX_W-1:0], weight[IC_BITS-1:0]}
-        // Since MAIN_WORD_W may be larger than the sum, pad with zeros at MSB.
         logic [MAIN_WORD_W_TEST-1:0] p;
         p = '0;
+        // Place row at top bits
         p[MAIN_WORD_W_TEST-1 -: COL_IDX_W_TEST] = COL_IDX_W_TEST'(r);
-        p[IC_BITS_P +: COL_IDX_W_TEST] = COL_IDX_W_TEST'(c);
+        // Place col just below row
+        p[IC_BITS_P + COL_IDX_W_TEST -: COL_IDX_W_TEST] = COL_IDX_W_TEST'(c);
+        // Place weight at LSB
         p[IC_BITS_P-1:0] = IC_BITS'(signed'(w));
         return p;
     endfunction
@@ -215,7 +217,13 @@ module tb_sparsity_scanner;
     // Test cases
     // -------------------------------------------------------------------------
     initial begin
-        // Initialize
+        // ---- All declarations must be at the top ----
+        int EDGES[0:2][2];
+        int num_edges_test;
+        int active_n_test;
+        int e;   // loop variable
+
+        // Initialize signals
         mm_wr_en   = 0;
         mm_wr_addr = 0;
         mm_wr_data = 0;
@@ -225,6 +233,11 @@ module tb_sparsity_scanner;
         rp_rd_en   = 0;
         en_rd_en   = 0;
 
+        // Initialize test data
+        EDGES = '{{0,1}, {0,2}, {1,3}};
+        num_edges_test = 3;
+        active_n_test = 4;
+
         repeat (4) @(posedge clk);
         rst_n = 1;
         repeat (2) @(posedge clk);
@@ -232,13 +245,9 @@ module tb_sparsity_scanner;
 
         // ── Test 1: Normal graph (3 edges, N=4) ──────────────────────────────
         $display("Test 1: Normal graph with 3 edges");
-        // Define edges: (0,1), (0,2), (1,3)
-        int EDGES[0:2][2] = '{{0,1}, {0,2}, {1,3}};
-        int num_edges_test = 3;
-        int active_n_test = 4;
 
         // Preload main memory
-        for (int e = 0; e < num_edges_test; e++) begin
+        for (e = 0; e < num_edges_test; e++) begin
             mm_write(MAIN_EDGE_BASE + e,
                      pack_edge(EDGES[e][0], EDGES[e][1], 1));
         end
@@ -281,7 +290,6 @@ module tb_sparsity_scanner;
         // Test 2: Empty edge list
         // --------------------------------------------------------------------
         $display("Test 2: Empty edge list (num_edges=0)");
-        // Clear main memory (optional)
         // Set num_edges=0, active_n=4
         num_edges = 0;
         active_n  = COL_IDX_W_TEST'(4);
@@ -296,7 +304,6 @@ module tb_sparsity_scanner;
         for (int i = 0; i < active_n_test; i++) begin
             check_rp(i, 0, 0);
         end
-        // No entries should be written, but we can't check all; just check one.
         // nnz_total should be 0
         check_equal_val("nnz_total", nnz_total, 0);
 
