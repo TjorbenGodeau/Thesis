@@ -77,7 +77,7 @@ module tb_sparse_dsb_array;
     // ── Parameters for the test problem ──────────────────────────────────
     localparam int NUM_NODES = 4;
     localparam int NUM_EDGES = 4;
-    localparam int NSTEP     = 200;   // increased from 50 for better convergence
+    localparam int NSTEP     = 200;
 
     localparam int A0_FP  = 16384;   // 1.0 in Q0.14
     localparam int DT_FP  = 164;     // 0.01
@@ -141,7 +141,7 @@ module tb_sparse_dsb_array;
         for (int e = 0; e < NUM_EDGES; e++) begin
             int s1 = signs[EDGES[e].r] ? 1 : -1;
             int s2 = signs[EDGES[e].c] ? 1 : -1;
-            energy += EDGES[e].w * s1 * s2;   // J * s_i * s_j
+            energy += EDGES[e].w * s1 * s2;
         end
         return energy;
     endfunction
@@ -151,6 +151,7 @@ module tb_sparse_dsb_array;
         // ---- All declarations at the top ----
         int cut;
         int energy;
+        logic success;
 
         $dumpfile("tb_sparse_dsb_array.vcd");
         $dumpvars(0, tb_sparse_dsb_array);
@@ -227,14 +228,13 @@ module tb_sparse_dsb_array;
         $display("  Hamiltonian energy = %0d (optimal = -%0d)", energy, NUM_EDGES);
 
         // Check if result is reasonable
-        logic success;
-        success = 1;
+        success = 1'b1;
         if (cut < 2) begin
             $display("  FAIL: cut too low (%0d)", cut);
-            success = 0;
+            success = 1'b0;
         end else if (energy > 0) begin
             $display("  FAIL: energy positive (%0d)", energy);
-            success = 0;
+            success = 1'b0;
         end else begin
             $display("  PASS: result is valid (cut >= 2, energy <= 0)");
         end
@@ -254,7 +254,7 @@ module tb_sparse_dsb_array;
 
     // ── Watchdog timeout ──────────────────────────────────────────────────
     initial begin
-        #10_000_000;   // increased timeout
+        #10_000_000;
         $fatal(1, "GLOBAL TIMEOUT");
     end
 
