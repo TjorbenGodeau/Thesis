@@ -115,18 +115,14 @@ module tb_sparse_dsb_array_100nodes;
         while (!sig) begin
             @(posedge clk);
             cnt++;
-            if (cnt > timeout) begin
-                $display("TIMEOUT after %0d cycles for %s", timeout, lbl);
-                $fatal(1, "TIMEOUT: %s", lbl);
-            end
+            if (cnt > timeout) $fatal(1, "TIMEOUT: %s", lbl);
         end
     endtask
 
     // ── Main test ────────────────────────────────────────────────────────
     initial begin
         // ---- All declarations at the top ----
-        int cut;
-        int energy;
+        int cut, energy, e, i, r, c, s1, s2, val, edge_idx;
         bit pass;
 
         $dumpfile("tb_sparse_dsb_array_100nodes.vcd");
@@ -137,10 +133,6 @@ module tb_sparse_dsb_array_100nodes;
         $display(" Nodes = %0d, Edges = %0d, Optimal cut = %0d",
                  NODES, EDGES, EDGES);
         $display("==========================================================");
-        $display("WARNING: Package N must be >= %0d and MAX_EDGES >= %0d",
-                 NODES, EDGES);
-        $display("Current N = %0d, MAX_EDGES = %0d",
-                 N, MAX_EDGES);
 
         // Reset
         rst_n = 0;
@@ -151,18 +143,21 @@ module tb_sparse_dsb_array_100nodes;
 
         // ── 1. Load all edges (J = +1) ──────────────────────────────────
         $display("[%0t] Loading %0d edges...", $time, EDGES);
-        for (int edge_idx = 0; edge_idx < EDGES; edge_idx++) begin
-            int r = edge_idx / HALF;        // 0..49
-            int c = HALF + (edge_idx % HALF); // 50..99
+        edge_idx = 0;
+        while (edge_idx < EDGES) begin
+            // Generate K_{50,50} edges: from nodes 0..49 to nodes 50..99
+            r = edge_idx / HALF;        // 0..49
+            c = HALF + (edge_idx % HALF); // 50..99
             mm_write(MAIN_EDGE_BASE + edge_idx, pack_edge(r, c, 1));
             if (edge_idx % 500 == 0) $display("  loaded %0d edges", edge_idx);
+            edge_idx++;
         end
         $display("[%0t] All edges loaded", $time);
 
         // ── 2. Initialize x with small random values ──────────────────
         $display("[%0t] Initialising x with small random values", $time);
-        for (int i = 0; i < NODES; i++) begin
-            int val = (i % 2 == 0) ? 5 : -5;
+        for (i = 0; i < NODES; i++) begin
+            val = (i % 2 == 0) ? 5 : -5;
             write_x(i, XY_W'(val << (XY_FRAC - 4)));
         end
 
@@ -174,11 +169,10 @@ module tb_sparse_dsb_array_100nodes;
         dt_fp     = XY_FRAC'(DT_FP);
         c0_fp     = XY_FRAC'(C0_FP);
 
-        $display("[%0t] active_n = %0d, num_edges = %0d", $time, active_n, num_edges);
         $display("[%0t] Starting run with Nstep = %0d", $time, NSTEP);
         run = 1;
 
-        wait_high(scan_done, 100000, "scan_done");  // increased timeout
+        wait_high(scan_done, 10000, "scan_done");
         $display("[%0t] scan_done", $time);
 
         wait_high(schedule_done, 20_000_000, "schedule_done");
@@ -188,18 +182,18 @@ module tb_sparse_dsb_array_100nodes;
 
         // ── 4. Evaluate result ────────────────────────────────────────
         cut = 0;
-        for (int e = 0; e < EDGES; e++) begin
-            int r = e / HALF;
-            int c = HALF + (e % HALF);
+        for (e = 0; e < EDGES; e++) begin
+            r = e / HALF;
+            c = HALF + (e % HALF);
             if (signs_out[r] !== signs_out[c]) cut++;
         end
 
         energy = 0;
-        for (int e = 0; e < EDGES; e++) begin
-            int r = e / HALF;
-            int c = HALF + (e % HALF);
-            int s1 = signs_out[r] ? 1 : -1;
-            int s2 = signs_out[c] ? 1 : -1;
+        for (e = 0; e < EDGES; e++) begin
+            r = e / HALF;
+            c = HALF + (e % HALF);
+            s1 = signs_out[r] ? 1 : -1;
+            s2 = signs_out[c] ? 1 : -1;
             energy += s1 * s2;   // J = +1
         end
 
