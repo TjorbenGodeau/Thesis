@@ -1,4 +1,4 @@
-// tb_sparse_core.sv - corrected
+// tb_sparse_core.sv — corrected with proper fixed‑point reference model
 `timescale 1ns/1ps
 
 module tb_sparse_core;
@@ -6,9 +6,9 @@ module tb_sparse_core;
     import dsb_pkg::*;
     import dsb_sparse_pkg::*;
 
-    // ── Local parameters (small test system) ──────────────────────────────
+    // ── Local parameters ──────────────────────────────────────────────
     localparam int N_TEST          = 4;
-    localparam int K_MAX_P         = 2;            // force chunking
+    localparam int K_MAX_P         = 2;
     localparam int IC_BITS_P       = 4;
     localparam int COL_IDX_WP      = $clog2(N_TEST);
     localparam int MAX_EDGES_TEST  = 4;
@@ -28,7 +28,7 @@ module tb_sparse_core;
     always #5 clk = ~clk;
     logic rst_n = 1;
 
-    // ── DUT signals for sparse_core ──────────────────────────────────────
+    // ── DUT signals ──────────────────────────────────────────────────
     logic                         start;
     logic [COL_IDX_WP-1:0]        osc_idx;
     logic signed [XY_W-1:0]       x_i;
@@ -54,7 +54,7 @@ module tb_sparse_core;
     logic                         sign_xi_new;
     logic                         done;
 
-    // ── DUT ──────────────────────────────────────────────────────────────
+    // ── DUT ──────────────────────────────────────────────────────────
     sparse_core #(
         .N_P        (N_TEST),
         .IC_BITS_P  (IC_BITS_P),
@@ -100,7 +100,7 @@ module tb_sparse_core;
         .done        (done)
     );
 
-    // ── Instantiate main_memory and csr_index_store ──────────────────────
+    // ── External main_memory and csr_index_store ────────────────────
     logic mm_wr_en;
     logic [MAIN_ADDR_WP-1:0] mm_wr_addr;
     logic [MAIN_WORD_WP-1:0] mm_wr_data;
@@ -156,7 +156,7 @@ module tb_sparse_core;
         .en_rd_valid (en_rd_valid)
     );
 
-    // ── Pre‑load tasks ──────────────────────────────────────────────────
+    // ── Pre‑load tasks ──────────────────────────────────────────────
     task mm_write(input int addr, input logic [MAIN_WORD_WP-1:0] data);
         @(posedge clk);
         mm_wr_en = 1; mm_wr_addr = addr; mm_wr_data = data;
@@ -165,8 +165,7 @@ module tb_sparse_core;
     endtask
 
     task rp_write(input int row, input int start, input int count);
-        logic [ROW_PTR_W_P-1:0] data;
-        data = {CSR_ADDR_W_P'(start), ROW_COUNT_WP'(count)};
+        logic [ROW_PTR_W_P-1:0] data = {CSR_ADDR_W_P'(start), ROW_COUNT_WP'(count)};
         @(posedge clk);
         rp_wr_en = 1; rp_wr_row = row; rp_wr_data = data;
         @(posedge clk);
@@ -174,8 +173,7 @@ module tb_sparse_core;
     endtask
 
     task en_write(input int addr, input int col, input int maddr);
-        logic [CSR_ENTRY_WP-1:0] data;
-        data = {COL_IDX_WP'(col), MAIN_ADDR_WP'(maddr)};
+        logic [CSR_ENTRY_WP-1:0] data = {COL_IDX_WP'(col), MAIN_ADDR_WP'(maddr)};
         @(posedge clk);
         en_wr_en = 1; en_wr_addr = addr; en_wr_data = data;
         @(posedge clk);
@@ -183,27 +181,22 @@ module tb_sparse_core;
     endtask
 
     function automatic logic [MAIN_WORD_WP-1:0] pack_edge(input int r, c, w);
-        logic [MAIN_WORD_WP-1:0] p;
-        p = '0;
-        p[IC_BITS_P-1:0] = IC_BITS_P'(signed'(w));
-        p[IC_BITS_P +: COL_IDX_WP] = COL_IDX_WP'(c);
-        p[MAIN_WORD_WP-1 -: COL_IDX_WP] = COL_IDX_WP'(r);
-        return p;
+        return {COL_IDX_WP'(r), COL_IDX_WP'(c), IC_BITS_P'(signed'(w))};
     endfunction
 
-    // ── Reference model for correct behaviour ────────────────────────────
-    // Compute correct Jx_i for row 0 from CSR (hardcoded for this test)
+    // ── Reference model for Jx_i ────────────────────────────────────
     function automatic logic signed [ACCUM_W-1:0] compute_Jx(
         input logic [N_TEST-1:0] signs
     );
         logic signed [ACCUM_W-1:0] Jx = 0;
+        // Hardcoded edges: (0,1)=5, (0,2)=-3, (0,3)=2
         Jx += 5 * (signs[1] ? 1 : -1);
         Jx += (-3) * (signs[2] ? 1 : -1);
         Jx += 2 * (signs[3] ? 1 : -1);
         return Jx;
     endfunction
 
-    // Reference update_unit (same as in tb_update_unit)
+    // ── Correct reference update_unit (matches RTL fixed‑point) ─────
     function automatic void ref_update(
         input logic signed [XY_W-1:0] x,
         input logic signed [XY_W-1:0] y,
@@ -215,45 +208,38 @@ module tb_sparse_core;
         output logic signed [XY_W-1:0] y_new,
         output logic sign_new
     );
-        // ---- All declarations at the top ----
+        // Stage A: a*x
         logic signed [PROD_W-1:0] ax_full;
         logic signed [XY_W-1:0] ax_shifted;
-        logic signed [ACCUM_W+XY_FRAC-1:0] c0jx_full;
-        logic signed [XY_W-1:0] neg_ax;
-        logic signed [ACCUM_W+XY_FRAC-1:0] force_wide;
-        logic signed [ACCUM_W+2*XY_FRAC-1:0] dy_full;
-        logic signed [XY_W-1:0] delta_y;
-        logic signed [XY_W-1:0] y_pre;
-        logic signed [2*XY_W-1:0] dx_full;
-        logic signed [XY_W-1:0] x_pre;
-        logic wall_hit_pos, wall_hit_neg, wall_hit;
-
-        // ---- Now procedural assignments ----
-        // Stage A: a*x
         ax_full = $signed({{(PROD_W-XY_W){x[XY_W-1]}}, x}) * $signed({1'b0, a});
         ax_shifted = XY_W'(ax_full >>> (A_BITS-1));
 
         // Stage B: c0*Jx
+        logic signed [ACCUM_W+XY_FRAC-1:0] c0jx_full;
         c0jx_full = Jx * $signed({1'b0, c0});
 
         // Stage C: Δy
-        neg_ax = -ax_shifted;
+        logic signed [XY_W-1:0] neg_ax = -ax_shifted;
+        logic signed [ACCUM_W+XY_FRAC-1:0] force_wide;
         force_wide = $signed({{(ACCUM_W+XY_FRAC-XY_W){neg_ax[XY_W-1]}}, neg_ax})
                      + $signed(c0jx_full);
+        logic signed [ACCUM_W+2*XY_FRAC-1:0] dy_full;
         dy_full = force_wide * $signed({1'b0, dt});
+        logic signed [XY_W-1:0] delta_y;
         delta_y = XY_W'(dy_full >>> XY_FRAC);
 
         // Stage D: y_pre
-        y_pre = y + delta_y;
+        logic signed [XY_W-1:0] y_pre = y + delta_y;
 
         // Stage E: x_pre
+        logic signed [2*XY_W-1:0] dx_full;
         dx_full = y_pre * $signed({1'b0, dt});
-        x_pre = x + XY_W'(dx_full >>> XY_FRAC);
+        logic signed [XY_W-1:0] x_pre = x + XY_W'(dx_full >>> XY_FRAC);
 
         // Stage F: wall
-        wall_hit_pos = (x_pre >  $signed(ONE_FP));
-        wall_hit_neg = (x_pre < -$signed(ONE_FP));
-        wall_hit = wall_hit_pos | wall_hit_neg;
+        logic wall_hit_pos = (x_pre >  $signed(ONE_FP));
+        logic wall_hit_neg = (x_pre < -$signed(ONE_FP));
+        logic wall_hit = wall_hit_pos | wall_hit_neg;
         if (wall_hit) begin
             x_new = wall_hit_pos ?  ONE_FP : -ONE_FP;
             y_new = '0;
@@ -288,23 +274,18 @@ module tb_sparse_core;
 
     // ── Test sequence ──────────────────────────────────────────────────
     initial begin
-        // ---- Declarations at the top ----
-        logic signed [ACCUM_W-1:0] Jx_correct;
-        logic signed [XY_W-1:0] x_exp, y_exp;
-        logic sign_exp;
-
-        // Initialize signals
+        // Initialize
         mm_wr_en   = 0;
         rp_wr_en   = 0;
         en_wr_en   = 0;
         start = 0;
         osc_idx = 0;
-        x_i = 50;
-        y_i = 10;
-        a_m = 8192;      // 0.5
-        dt_fp = 164;     // 0.01
-        c0_fp = 8192;    // 0.5
-        osc_signs = 4'b0010; // node0=+1, node1=+1, node2=-1, node3=+1
+        x_i = 50 * ONE_FP;    // 50.0 in Q1.14
+        y_i = 10 * ONE_FP;    // 10.0
+        a_m = 8192;           // 0.5
+        dt_fp = 164;          // 0.01
+        c0_fp = 8192;         // 0.5
+        osc_signs = 4'b0010;  // node0=+1, node1=+1, node2=-1, node3=+1
 
         repeat (4) @(posedge clk);
         rst_n = 1;
@@ -325,7 +306,10 @@ module tb_sparse_core;
         en_write(2, 3, 2);
 
         // ── Compute expected result ──────────────────────────────────────
-        Jx_correct = compute_Jx(osc_signs);  // should be 10
+        logic signed [ACCUM_W-1:0] Jx_correct;
+        Jx_correct = compute_Jx(osc_signs);  // 6
+        logic signed [XY_W-1:0] x_exp, y_exp;
+        logic sign_exp;
         ref_update(x_i, y_i, Jx_correct, a_m, dt_fp, c0_fp, x_exp, y_exp, sign_exp);
         $display("Expected Jx_i = %0d, x_new=%0d, y_new=%0d, sign=%b",
                  Jx_correct, x_exp, y_exp, sign_exp);
