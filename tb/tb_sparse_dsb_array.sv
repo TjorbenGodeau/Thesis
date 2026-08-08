@@ -1,4 +1,4 @@
-// tb_sparse_dsb_array.sv — multi‑case test with J = +1 (antiferromagnetic)
+// tb_sparse_dsb_array.sv — multi‑case test with J = +1 and aggressive parameters
 `timescale 1ns/1ps
 
 module tb_sparse_dsb_array;
@@ -73,10 +73,13 @@ module tb_sparse_dsb_array;
         .scan_done   (scan_done)
     );
 
-    // ── Constants ─────────────────────────────────────────────────────────
-    localparam int A0_FP = 16384;
-    localparam int DT_FP = 164;
-    localparam int C0_FP = 8192;
+    // ── New parameters for aggressive dynamics ────────────────────────────
+    // a = 0.1  (damping reduced)
+    // c0 = 2.0 (coupling increased)
+    // dt = 0.05 (time step increased)
+    localparam int A0_FP = 1638;     // 0.1 * 2^14
+    localparam int C0_FP = 32768;    // 2.0 * 2^14
+    localparam int DT_FP = 819;      // 0.05 * 2^14
 
     // ── Testbench helpers ──────────────────────────────────────────────────
     int step_count = 0;
@@ -120,17 +123,15 @@ module tb_sparse_dsb_array;
         int      num_nodes;
         int      num_edges;
         int      nstep;
-        int      edges[ ][3];   // {src, dst, weight}  (weight = +1)
+        int      edges[ ][3];
         int      x_init[ ];
-        int      min_cut;       // minimum acceptable cut for this case
-        int      max_energy;    // energy must be <= this
+        int      min_cut;
+        int      max_energy;
     } test_case_t;
 
     // ── Helper to run one test case ──────────────────────────────────────
     task automatic run_case(input test_case_t tc, output bit pass);
-        int cut;
-        int energy;
-        int e;
+        int cut, energy, e;
 
         $display("");
         $display("====================================================");
@@ -143,7 +144,7 @@ module tb_sparse_dsb_array;
         for (e = 0; e < tc.num_edges; e++) begin
             int r = tc.edges[e][0];
             int c = tc.edges[e][1];
-            int w = tc.edges[e][2];   // should be +1
+            int w = tc.edges[e][2];
             mm_write(MAIN_EDGE_BASE + e, pack_edge(r, c, w));
         end
 
@@ -152,7 +153,7 @@ module tb_sparse_dsb_array;
             write_x(i, XY_W'(tc.x_init[i] << (XY_FRAC - 4)));
         end
 
-        // 3. Set parameters and start
+        // 3. Set parameters
         active_n  = $clog2(N)'(tc.num_nodes);
         num_edges = CSR_ADDR_W'(tc.num_edges);
         Nstep     = STEP_W'(tc.nstep);
@@ -168,7 +169,7 @@ module tb_sparse_dsb_array;
         @(posedge clk);
         run = 0;
 
-        // 4. Evaluate result
+        // 4. Evaluate
         cut = 0;
         for (e = 0; e < tc.num_edges; e++) begin
             int r = tc.edges[e][0];
@@ -176,7 +177,6 @@ module tb_sparse_dsb_array;
             if (signs_out[r] !== signs_out[c]) cut++;
         end
 
-        // Compute energy for J = +1: H = Σ s_i * s_j
         energy = 0;
         for (e = 0; e < tc.num_edges; e++) begin
             int r = tc.edges[e][0];
@@ -208,7 +208,7 @@ module tb_sparse_dsb_array;
         #100;
     endtask
 
-    // ── Test case generators (all edges weight = +1) ────────────────────
+    // ── Test case generators ─────────────────────────────────────────────
     function automatic test_case_t cycle_case(int n, int nstep);
         test_case_t tc;
         tc.name = $sformatf("%0d‑node cycle (J=+1)", n);
@@ -218,19 +218,18 @@ module tb_sparse_dsb_array;
         tc.edges = new[n];
         for (int i = 0; i < n; i++) begin
             int j = (i + 1) % n;
-            tc.edges[i] = '{i, j, 1};   // J = +1
+            tc.edges[i] = '{i, j, 1};
         end
         tc.x_init = new[n];
         for (int i = 0; i < n; i++) tc.x_init[i] = (i % 2 == 0) ? 50 : -30;
-        tc.min_cut = n/2;      // at least half edges cut
-        tc.max_energy = -1;    // energy must be negative
+        tc.min_cut = n/2;
+        tc.max_energy = -1;
         return tc;
     endfunction
 
     function automatic test_case_t complete_bipartite_case(int a, int b, int nstep);
         test_case_t tc;
-        int n = a + b;
-        int idx = 0;
+        int n = a + b, idx = 0;
         tc.name = $sformatf("K%0d,%0d complete bipartite (J=+1)", a, b);
         tc.num_nodes = n;
         tc.num_edges = a * b;
@@ -238,7 +237,7 @@ module tb_sparse_dsb_array;
         tc.edges = new[tc.num_edges];
         for (int i = 0; i < a; i++) begin
             for (int j = a; j < n; j++) begin
-                tc.edges[idx++] = '{i, j, 1};   // J = +1
+                tc.edges[idx++] = '{i, j, 1};
             end
         end
         tc.x_init = new[n];
@@ -262,17 +261,14 @@ module tb_sparse_dsb_array;
         for (int i = 0; i < n && idx < num_edges; i++) begin
             for (int j = i+1; j < n && idx < num_edges; j++) begin
                 if ( (i*j + j + i) % 10 < density ) begin
-                    tc.edges[idx++] = '{i, j, 1};   // J = +1
+                    tc.edges[idx++] = '{i, j, 1};
                 end
             end
         end
-        // Pad if necessary
         while (idx < num_edges) begin
             int i = idx % n;
             int j = (idx + 7) % n;
-            if (i != j) begin
-                tc.edges[idx++] = '{i, j, 1};   // J = +1
-            end
+            if (i != j) tc.edges[idx++] = '{i, j, 1};
         end
         tc.x_init = new[n];
         for (int i = 0; i < n; i++) tc.x_init[i] = (i % 2 == 0) ? 30 : -30;
@@ -283,26 +279,24 @@ module tb_sparse_dsb_array;
 
     // ── Main test sequence ──────────────────────────────────────────────
     initial begin
-        // ---- All declarations at the top ----
         test_case_t cases[4];
-        int total_passed;
-        int total_cases;
+        int total_passed, total_cases;
         bit pass;
 
         $dumpfile("tb_sparse_dsb_array.vcd");
         $dumpvars(0, tb_sparse_dsb_array);
 
-        // Build test case list with J = +1 (antiferromagnetic)
-        cases[0] = cycle_case(4, 200);
-        cases[1] = cycle_case(8, 400);
-        cases[2] = complete_bipartite_case(4,4, 500);
-        cases[3] = random_graph_case(10, 3, 600);
+        // Cases with increased Nstep
+        cases[0] = cycle_case(4, 500);
+        cases[1] = cycle_case(8, 800);
+        cases[2] = complete_bipartite_case(4,4, 800);
+        cases[3] = random_graph_case(10, 3, 1000);
 
         rst_n = 0;
         repeat (4) @(posedge clk);
         rst_n = 1;
         repeat (2) @(posedge clk);
-        $display("[%0t] Reset released", $time);
+        $display("[%0t] Reset released (a=0.1, c0=2.0, dt=0.05)", $time);
 
         total_passed = 0;
         total_cases = $size(cases);
@@ -325,7 +319,7 @@ module tb_sparse_dsb_array;
 
     // ── Watchdog timeout ──────────────────────────────────────────────────
     initial begin
-        #50_000_000;
+        #100_000_000;
         $fatal(1, "GLOBAL TIMEOUT");
     end
 
