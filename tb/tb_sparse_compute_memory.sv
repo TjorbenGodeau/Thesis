@@ -1,8 +1,8 @@
-// tb_sparse_compute_memory_advanced.sv
-// Advanced self-checking testbench for sparse_compute_memory
+// tb_sparse_compute_memory.sv
+// Self-checking testbench for sparse_compute_memory
 `timescale 1ns/1ps
 
-module tb_sparse_compute_memory_advanced;
+module tb_sparse_compute_memory;
 
     import dsb_pkg::*;
     import dsb_sparse_pkg::*;
@@ -162,7 +162,7 @@ module tb_sparse_compute_memory_advanced;
         end
 
         repeat (2) @(posedge clk);
-        $display("=== Starting advanced sparse_compute_memory test ===");
+        $display("=== Starting sparse_compute_memory test ===");
 
         // -----------------------------------------------------------------
         // 1. Write each slot and verify individually
@@ -257,15 +257,15 @@ module tb_sparse_compute_memory_advanced;
         #100;
         // Probe q of sign bitcell slot0 (if simulation supports it)
         // You can add this to waveform viewer manually.
-        // Path: tb_sparse_compute_memory_advanced.u_dut.gen_slot[0].u_sign.u_J.q
+        // Path: tb_sparse_compute_memory.u_dut.gen_slot[0].u_sign.u_J.q
         $display("To check internal q of sign bitcell slot0, add:");
-        $display("  tb_sparse_compute_memory_advanced.u_dut.gen_slot[0].u_sign.u_J.q");
+        $display("  tb_sparse_compute_memory.u_dut.gen_slot[0].u_sign.u_J.q");
     end
 
     // VCD dump
     initial begin
-        $dumpfile("tb_sparse_compute_memory_advanced.vcd");
-        $dumpvars(0, tb_sparse_compute_memory_advanced);
+        $dumpfile("tb_sparse_compute_memory.vcd");
+        $dumpvars(0, tb_sparse_compute_memory);
     end
 
 endmodule
