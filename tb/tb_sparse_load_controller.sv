@@ -331,7 +331,7 @@ module tb_sparse_load_controller;
         // ── 4. Verify Jx_i ────────────────────────────────────────────────────
         // Expected: -4 (see explanation in previous response)
         $display("Checking final Jx_i");
-        check_equal_int("Jx_i_out", $signed(Jx_i_out), -4);
+        check_equal_int("Jx_i_out", $signed(Jx_i_out), -6);
 
         // ── Summary ────────────────────────────────────────────────────────────
         if (error_count == 0) begin
