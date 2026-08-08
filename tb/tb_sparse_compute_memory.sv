@@ -1,8 +1,8 @@
-// tb_sparse_compute_memory.sv
-// Self-checking testbench for sparse_compute_memory
+// tb_sparse_compute_memory_advanced.sv
+// Advanced self-checking testbench for sparse_compute_memory
 `timescale 1ns/1ps
 
-module tb_sparse_compute_memory;
+module tb_sparse_compute_memory_advanced;
 
     import dsb_pkg::*;
     import dsb_sparse_pkg::*;
@@ -57,23 +57,19 @@ module tb_sparse_compute_memory;
 
     // ─── Test control ────────────────────────────────────────────────────
     int error_count = 0;
+    int test_pass_count = 0;
 
-    // Helper: extract a slot's J bits
+    // Helper: extract a slot's J bits from rbl_J
     function automatic logic [IC_BITS_T-1:0] get_rbl_J(input int slot);
         return rbl_J[slot*IC_BITS_T +: IC_BITS_T];
     endfunction
 
-    // Helper: compute expected XNOR of a stored vector with a single-bit rwl
-    function automatic logic [IC_BITS_T-1:0] expected_xnor_J(
-        input logic [IC_BITS_T-1:0] stored,
-        input logic                 rwl
-    );
+    // Helper: expected XNOR
+    function automatic logic [IC_BITS_T-1:0] expected_xnor_J(input logic [IC_BITS_T-1:0] stored, input logic rwl);
         return (rwl ? stored : ~stored);
     endfunction
-
-    // Helper: compute expected sign_eq for a slot (XNOR of stored sign_j and rwl)
-    function automatic logic expected_sign_eq(input logic sign_j, input logic rwl);
-        return ~(sign_j ^ rwl);
+    function automatic logic expected_xnor_bit(input logic stored, input logic rwl);
+        return ~(stored ^ rwl);
     endfunction
 
     // Check tasks
@@ -83,6 +79,7 @@ module tb_sparse_compute_memory;
             error_count++;
         end else begin
             $display("  %s: OK", msg);
+            test_pass_count++;
         end
     endtask
 
@@ -92,13 +89,61 @@ module tb_sparse_compute_memory;
             error_count++;
         end else begin
             $display("  %s: OK", msg);
+            test_pass_count++;
         end
     endtask
 
-    // ─── Stored expected data (for reference) ──────────────────────────
+    // ─── Stored expected data ──────────────────────────────────────────
     logic [COL_W_T-1:0]          exp_col [K_MAX_T];
     logic [IC_BITS_T-1:0]        exp_J  [K_MAX_T];
     logic                        exp_sign[K_MAX_T];
+    logic                        stored_sign_verified [K_MAX_T];
+
+    // ─── Write task with verification ──────────────────────────────────
+    task write_slot_and_verify(
+        input int slot,
+        input logic [COL_W_T-1:0] col,
+        input logic [IC_BITS_T-1:0] J,
+        input logic sign
+    );
+        // Write
+        @(posedge clk);
+        wr_en = 1; wr_slot = slot; wr_col_idx = col; wr_J = J; wr_sign_j = sign;
+        exp_col[slot] = col; exp_J[slot] = J; exp_sign[slot] = sign;
+        $display("[%0t] Writing slot%d: col=%d, J=%h, sign=%b", $time, slot, col, J, sign);
+        @(posedge clk);
+        wr_en = 0;
+
+        // Immediately read back stored value using rwl=1 (XNOR with 1 gives stored)
+        // Wait one cycle for combinational settle after changing rwl
+        @(posedge clk);
+        rwl = (1 << slot);   // only this slot gets rwl=1, others get 0
+        #1;
+        // Check sign
+        logic actual_sign = rbl_signs[slot];
+        logic exp = expected_xnor_bit(sign, 1); // rwl=1 => XNOR(sign,1) = sign
+        check_equal_bit($sformatf("slot%d sign after write (rwl=1)", slot), actual_sign, exp);
+        // Check J bits
+        logic [IC_BITS_T-1:0] actual_J = get_rbl_J(slot);
+        logic [IC_BITS_T-1:0] exp_J_after = expected_xnor_J(J, 1); // = J
+        check_equal_vec($sformatf("slot%d J after write (rwl=1)", slot), actual_J, exp_J_after);
+
+        // Also check other slots are unchanged (optional)
+        // We'll do that in a separate test.
+
+        // Also verify col_idx via read port
+        @(posedge clk);
+        rd_col_en = 1; rd_slot = slot;
+        @(posedge clk);
+        // Now rd_col_valid is high
+        check_equal_vec($sformatf("col_idx slot%d", slot), rd_col_idx, col);
+        if (rd_col_valid !== 1) $error("rd_col_valid not high for slot%d", slot);
+        rd_col_en = 0;
+
+        // Reset rwl to avoid affecting later tests
+        @(posedge clk);
+        rwl = 0;
+    endtask
 
     // ─── Test sequence ──────────────────────────────────────────────────
     initial begin
@@ -111,91 +156,49 @@ module tb_sparse_compute_memory;
         end
 
         repeat (2) @(posedge clk);
-        $display("=== Starting sparse_compute_memory test ===");
+        $display("=== Starting advanced sparse_compute_memory test ===");
 
         // -----------------------------------------------------------------
-        // 1. Write all slots with known values
+        // 1. Write each slot and verify individually
         // -----------------------------------------------------------------
-        $display("Test 1: Write all slots");
-        // Slot 0: col=2, J=5 (0101), sign=1
-        @(posedge clk);
-        wr_en = 1; wr_slot = 0; wr_col_idx = 2; wr_J = 5; wr_sign_j = 1;
-        exp_col[0] = 2; exp_J[0] = 5; exp_sign[0] = 1;
-        @(posedge clk);
-        // Slot 1: col=7, J=10 (1010), sign=0
-        wr_en = 1; wr_slot = 1; wr_col_idx = 7; wr_J = 10; wr_sign_j = 0;
-        exp_col[1] = 7; exp_J[1] = 10; exp_sign[1] = 0;
-        @(posedge clk);
-        // Slot 2: col=3, J=7 (0111), sign=1
-        wr_en = 1; wr_slot = 2; wr_col_idx = 3; wr_J = 7; wr_sign_j = 1;
-        exp_col[2] = 3; exp_J[2] = 7; exp_sign[2] = 1;
-        @(posedge clk);
-        // Slot 3: col=0, J=15 (1111), sign=0
-        wr_en = 1; wr_slot = 3; wr_col_idx = 0; wr_J = 15; wr_sign_j = 0;
-        exp_col[3] = 0; exp_J[3] = 15; exp_sign[3] = 0;
-        @(posedge clk);
-        wr_en = 0;
+        $display("Test 1: Write each slot and verify stored values");
+        write_slot_and_verify(0, 2, 4'b0101, 1'b1);
+        write_slot_and_verify(1, 7, 4'b1010, 1'b0);
+        write_slot_and_verify(2, 3, 4'b0111, 1'b1);
+        write_slot_and_verify(3, 0, 4'b1111, 1'b0);
 
         // -----------------------------------------------------------------
-        // 2. Read col_idx (with correct timing)
+        // 2. Compute with rwl == sign_j (all sign_eq should be 1)
+        //    rwl = {slot3=0, slot2=1, slot1=0, slot0=1} => 4'b0101
         // -----------------------------------------------------------------
-        $display("Test 2: Read col_idx");
-        // Read slot 0
-        @(posedge clk);
-        rd_col_en = 1; rd_slot = 0;
-        @(posedge clk);
-        // Now rd_col_valid is high, rd_col_idx is valid
-        check_equal_vec("Read col_idx slot0", rd_col_idx, exp_col[0]);
-        if (rd_col_valid !== 1) $error("rd_col_valid not high for slot0");
-        rd_col_en = 0;
-
-        // Read slot 2
-        @(posedge clk);
-        rd_col_en = 1; rd_slot = 2;
-        @(posedge clk);
-        check_equal_vec("Read col_idx slot2", rd_col_idx, exp_col[2]);
-        if (rd_col_valid !== 1) $error("rd_col_valid not high for slot2");
-        rd_col_en = 0;
-
-        // -----------------------------------------------------------------
-        // 3. Compute: rwl == sign_j (all sign_eq should be 1)
-        //    rwl = {slot3=0, slot2=1, slot1=0, slot0=1} → 4'b0101
-        // -----------------------------------------------------------------
-        $display("Test 3: Compute with rwl == sign_j");
+        $display("Test 2: Compute with rwl == sign_j");
         rwl = 4'b0101;   // slot0=1, slot1=0, slot2=1, slot3=0
         #1;
         for (int s=0; s<K_MAX_T; s++) begin
-            // ★ All declarations first
-            logic exp_s;
-            logic [IC_BITS_T-1:0] exp_j;
-            // Then assignments
-            exp_s = expected_sign_eq(exp_sign[s], rwl[s]);
-            exp_j = expected_xnor_J(exp_J[s], rwl[s]);
-            // Then checks
+            logic exp_s = expected_xnor_bit(exp_sign[s], rwl[s]);
             check_equal_bit($sformatf("slot%d sign_eq", s), rbl_signs[s], exp_s);
+            logic [IC_BITS_T-1:0] exp_j = expected_xnor_J(exp_J[s], rwl[s]);
             check_equal_vec($sformatf("slot%d J bits", s), get_rbl_J(s), exp_j);
         end
 
         // -----------------------------------------------------------------
-        // 4. Compute: rwl != sign_j (all sign_eq should be 0)
-        //    rwl = {slot3=1, slot2=0, slot1=1, slot0=0} → 4'b1010
+        // 3. Compute with rwl != sign_j (all sign_eq should be 0)
+        //    rwl = {slot3=1, slot2=0, slot1=1, slot0=0} => 4'b1010
         // -----------------------------------------------------------------
-        $display("Test 4: Compute with rwl != sign_j");
+        $display("Test 3: Compute with rwl != sign_j");
         rwl = 4'b1010;   // slot0=0, slot1=1, slot2=0, slot3=1
         #1;
         for (int s=0; s<K_MAX_T; s++) begin
-            logic exp_s;
-            logic [IC_BITS_T-1:0] exp_j;
-            exp_s = expected_sign_eq(exp_sign[s], rwl[s]);
-            exp_j = expected_xnor_J(exp_J[s], rwl[s]);
+            logic exp_s = expected_xnor_bit(exp_sign[s], rwl[s]);
             check_equal_bit($sformatf("slot%d sign_eq", s), rbl_signs[s], exp_s);
+            logic [IC_BITS_T-1:0] exp_j = expected_xnor_J(exp_J[s], rwl[s]);
             check_equal_vec($sformatf("slot%d J bits", s), get_rbl_J(s), exp_j);
         end
 
         // -----------------------------------------------------------------
-        // 5. Precharge (forces all rbl to 1)
+        // 4. Precharge (forces all rbl to 1)
         // -----------------------------------------------------------------
-        $display("Test 5: Precharge");
+        $display("Test 4: Precharge");
         precharge = 1;
         #1;
         for (int s=0; s<K_MAX_T; s++) begin
@@ -205,38 +208,25 @@ module tb_sparse_compute_memory;
         precharge = 0;
 
         // -----------------------------------------------------------------
-        // 6. Write slot 1 new value, then re‑read and compute
+        // 5. Overwrite slot 1 and verify only that slot changes
         // -----------------------------------------------------------------
-        $display("Test 6: Overwrite slot 1");
-        @(posedge clk);
-        wr_en = 1; wr_slot = 1; wr_col_idx = 5; wr_J = 3; wr_sign_j = 1;
-        exp_col[1] = 5; exp_J[1] = 3; exp_sign[1] = 1;
-        @(posedge clk);
-        wr_en = 0;
-
-        // Read col_idx slot1
-        @(posedge clk);
-        rd_col_en = 1; rd_slot = 1;
-        @(posedge clk);
-        check_equal_vec("Read col_idx slot1 after update", rd_col_idx, exp_col[1]);
-        if (rd_col_valid !== 1) $error("rd_col_valid not high for slot1 after update");
-        rd_col_en = 0;
-
-        // Compute with rwl == new sign_j (slot1=1, others don't matter)
-        rwl = 4'b0010;   // only slot1=1
+        $display("Test 5: Overwrite slot 1");
+        write_slot_and_verify(1, 5, 4'b0011, 1'b1);
+        // Verify all slots again with rwl=1 to ensure only slot1 changed
+        rwl = 4'b1111;
         #1;
         for (int s=0; s<K_MAX_T; s++) begin
-            logic exp_s;
-            logic [IC_BITS_T-1:0] exp_j;
-            exp_s = expected_sign_eq(exp_sign[s], rwl[s]);
-            exp_j = expected_xnor_J(exp_J[s], rwl[s]);
-            check_equal_bit($sformatf("slot%d sign_eq after update", s), rbl_signs[s], exp_s);
-            check_equal_vec($sformatf("slot%d J bits after update", s), get_rbl_J(s), exp_j);
+            logic exp_s = expected_xnor_bit(exp_sign[s], 1); // rwl=1 => stored
+            check_equal_bit($sformatf("slot%d sign after overwrite", s), rbl_signs[s], exp_s);
+            logic [IC_BITS_T-1:0] exp_j = expected_xnor_J(exp_J[s], 1);
+            check_equal_vec($sformatf("slot%d J after overwrite", s), get_rbl_J(s), exp_j);
         end
 
         // -----------------------------------------------------------------
         // Summary
         // -----------------------------------------------------------------
+        $display("=== Test Summary ===");
+        $display("Total checks passed: %0d", test_pass_count);
         if (error_count == 0) begin
             $display("=== All tests PASSED ===");
         end else begin
@@ -246,10 +236,21 @@ module tb_sparse_compute_memory;
         $finish;
     end
 
+    // ─── Optional: hierarchical probe of internal q of sign bitcell for slot0 ───
+    // This is for debugging only (not synthesizable)
+    initial begin
+        #100;
+        // Probe q of sign bitcell slot0 (if simulation supports it)
+        // You can add this to waveform viewer manually.
+        // Path: tb_sparse_compute_memory_advanced.u_dut.gen_slot[0].u_sign.u_J.q
+        $display("To check internal q of sign bitcell slot0, add:");
+        $display("  tb_sparse_compute_memory_advanced.u_dut.gen_slot[0].u_sign.u_J.q");
+    end
+
     // VCD dump
     initial begin
-        $dumpfile("tb_sparse_compute_memory.vcd");
-        $dumpvars(0, tb_sparse_compute_memory);
+        $dumpfile("tb_sparse_compute_memory_advanced.vcd");
+        $dumpvars(0, tb_sparse_compute_memory_advanced);
     end
 
 endmodule
