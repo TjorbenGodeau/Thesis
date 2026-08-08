@@ -24,13 +24,16 @@ module tb_sparse_load_controller;
                                       (COL_IDX_W_P+COL_IDX_W_P+IC_BITS_P) : XY_W;
     localparam int MAIN_MEM_WORDS  = MAX_EDGES_TEST + 2*N_TEST;
     localparam int K_CNT_W_P       = $clog2(K_MAX_P+1);
-    localparam int ACCUM_W_P       = 24;
+    localparam int ACCUM_W_P       = 24;  // from dsb_pkg
 
+    // Clock and reset
     logic clk = 0;
     always #5 clk = ~clk;
     logic rst_n = 1;
 
+    // -------------------------------------------------------------------------
     // DUT signals (declared once)
+    // -------------------------------------------------------------------------
     logic                        slc_start;
     logic [COL_IDX_W_P-1:0]      osc_idx;
     logic                        slc_done;
@@ -225,23 +228,25 @@ module tb_sparse_load_controller;
         return p;
     endfunction
 
-    task mm_write(input int addr, input logic [MAIN_WORD_WP-1:0] data);
+    task automatic mm_write(input int addr, input logic [MAIN_WORD_WP-1:0] data);
         @(posedge clk);
         mm_wr_en = 1; mm_wr_addr = addr; mm_wr_data = data;
         @(posedge clk);
         mm_wr_en = 0;
     endtask
 
-    task rp_write(input int row, input int start, input int count);
-        logic [ROW_PTR_W_P-1:0] data = {CSR_ADDR_W_P'(start), ROW_COUNT_WP'(count)};
+    task automatic rp_write(input int row, input int start, input int count);
+        logic [ROW_PTR_W_P-1:0] data;
+        data = {CSR_ADDR_W_P'(start), ROW_COUNT_WP'(count)};
         @(posedge clk);
         rp_wr_en = 1; rp_wr_row = row; rp_wr_data = data;
         @(posedge clk);
         rp_wr_en = 0;
     endtask
 
-    task en_write(input int addr, input int col, input int maddr);
-        logic [CSR_ENTRY_WP-1:0] data = {COL_IDX_W_P'(col), MAIN_ADDR_WP'(maddr)};
+    task automatic en_write(input int addr, input int col, input int maddr);
+        logic [CSR_ENTRY_WP-1:0] data;
+        data = {COL_IDX_W_P'(col), MAIN_ADDR_WP'(maddr)};
         @(posedge clk);
         en_wr_en = 1; en_wr_addr = addr; en_wr_data = data;
         @(posedge clk);
@@ -249,7 +254,7 @@ module tb_sparse_load_controller;
     endtask
 
     // Read back row pointer from CSR (for debug)
-    task read_rp(input int row, output int start, output int count);
+    task automatic read_rp(input int row, output int start, output int count);
         @(posedge clk);
         rp_rd_en = 1; rp_rd_row = row;
         @(posedge clk);
@@ -290,6 +295,10 @@ module tb_sparse_load_controller;
     // Test sequence
     // -------------------------------------------------------------------------
     initial begin
+        // ---- All declarations at the very top ----
+        int start, count;
+
+        // Initialize all signals
         mm_wr_en   = 0;
         mm_wr_addr = 0;
         mm_wr_data = 0;
@@ -322,7 +331,6 @@ module tb_sparse_load_controller;
         en_write(2, 3, MAIN_EDGE_BASE + 2);
 
         // Verify CSR readback
-        int start, count;
         read_rp(0, start, count);
         if (count != 3) $error("CSR preload failed: count=%0d", count);
 
@@ -339,11 +347,11 @@ module tb_sparse_load_controller;
         $display("slc_done asserted");
 
         // ── 4. Verify Jx_i ────────────────────────────────────────────────────
-        // Expected: Σ J_col * sign_col * sign_xi = 5*1*(-1) + (-3)*(-1)*(-1) + 2*(-1)*(-1) = -6?
-        // But RTL correction gives -4 (see derivation)
+        // Expected: -4 (see explanation in the previous response)
         $display("Checking final Jx_i");
         check_equal_int("Jx_i_out", $signed(Jx_i_out), -4);
 
+        // ── Summary ────────────────────────────────────────────────────────────
         if (error_count == 0) begin
             $display("=== All tests PASSED ===");
         end else begin
@@ -353,8 +361,10 @@ module tb_sparse_load_controller;
         $finish;
     end
 
+    // VCD dump
     initial begin
         $dumpfile("tb_sparse_load_controller.vcd");
         $dumpvars(0, tb_sparse_load_controller);
     end
+
 endmodule
