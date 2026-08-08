@@ -14,8 +14,9 @@
 //      c. Drive rwl[k] = sign(x_i) for all filled slots
 //         (since we're computing J[i][*] · sign(x_*), the RWL is sign(x_i)
 //          and the stored value is sign(x_j) — XNOR fires on equality)
-//      d. Trigger dotprod_phase2_sparse (accumulate=0 first chunk, 1 after)
-//      e. Wait for dotprod done
+//      d. Wait one cycle for RBL to settle (new state SLC_PRECLEAR)
+//      e. Trigger dotprod_phase2_sparse (accumulate=0 first chunk, 1 after)
+//      f. Wait for dotprod done
 //   3. After all chunks, asserts done=1.
 //      Caller can then read Jx_i from dotprod_phase2_sparse.
 //
@@ -49,6 +50,7 @@
 //  (6 cycles per entry)
 //
 // After all K_MAX (or fewer) entries are loaded:
+//  SLC_PRECLEAR   : wait one cycle for RBL to settle after precharge deassert
 //  SLC_TRIGGER_PH2: assert dotprod start (1 cycle)
 //  SLC_WAIT_PH2   : wait for dotprod done (1 cycle in current dotprod impl)
 // =============================================================================
@@ -120,6 +122,25 @@ module sparse_load_controller
 );
 
     // ── Internal registers ────────────────────────────────────────────────────
+    // State enumeration with new SLC_PRECLEAR state
+    typedef enum logic [4:0] {
+        SLC_IDLE,
+        SLC_LOAD_PTR,
+        SLC_WAIT_PTR,
+        SLC_CHUNK_START,
+        SLC_LOAD_ENTRY,
+        SLC_WAIT_ENTRY,
+        SLC_READ_J,
+        SLC_WAIT_J,
+        SLC_WRITE_TILE,
+        SLC_NEXT_ENTRY,
+        SLC_PRECLEAR,          // <--- NEW: one-cycle delay after precharge
+        SLC_TRIGGER_PH2,
+        SLC_WAIT_PH2,
+        SLC_NEXT_CHUNK,
+        SLC_DONE
+    } slc_state_t;
+
     slc_state_t state;
 
     logic [COL_IDX_W_P-1:0]   cur_osc;          // latched osc_idx
@@ -281,12 +302,13 @@ module sparse_load_controller
                     // Chunk full (slot_ptr == K_MAX_P-1), OR last entry of row
                     if (slot_ptr == $clog2(K_MAX)'(K_MAX_P - 1) ||
                         entries_remaining == '0) begin
-                        // Trigger dotprod for this chunk — precharge first
+                        // Precharge the tile and set RWL for all slots.
                         scm_precharge <= 1'b1;
                         for (int k = 0; k < K_MAX_P; k++) begin
                             scm_rwl[k] <= (k <= int'(slot_ptr)) ? sign_xi : 1'b0;
                         end
-                        state <= SLC_TRIGGER_PH2;
+                        // Go to SLC_PRECLEAR to let RBL settle after precharge deasserts.
+                        state <= SLC_PRECLEAR;
                     end else begin
                         // More entries to load: advance slot and fetch next entry
                         slot_ptr   <= slot_ptr + 1;
@@ -294,6 +316,15 @@ module sparse_load_controller
                         en_rd_addr <= entry_ptr;
                         state      <= SLC_LOAD_ENTRY;
                     end
+                end
+
+                // ── NEW: one‑cycle delay for RBL settling ────────────────────
+                // In this state, precharge is deasserted (default 0) and rwl is
+                // stable.  The RBL outputs from the bitcells now have valid XNOR
+                // results.  We wait one full cycle before starting the dotprod.
+                SLC_PRECLEAR: begin
+                    // No action; just advance to trigger on next edge.
+                    state <= SLC_TRIGGER_PH2;
                 end
 
                 // ── Trigger dotprod_phase2_sparse ─────────────────────────────
