@@ -81,12 +81,12 @@ module tb_dotprod_phase2_sparse;
 
         base = (accumulate ? Jx_accum_in : '0) + chunk_sum;
         if (last_chunk && !sign_xi)
-            base += ACCUM_W_P'(valid_count);   // current bug: adds valid_count (total row count)
+            base += ACCUM_W_P'(valid_count);   // as per RTL: adds valid_count
         return base;
     endfunction
 
     // Helper to run a test case
-    task test_case(
+    task automatic test_case(
         input string            label,
         input logic             accumulate_in,
         input logic             last_chunk_in,
@@ -126,7 +126,12 @@ module tb_dotprod_phase2_sparse;
 
     // ── Test sequence ──────────────────────────────────────────────────────
     initial begin
-        // Initialize
+        // ---- All declarations at the top ----
+        logic [K_MAX_P*IC_BITS_P-1:0] xnor1, xnor_chunk0, xnor_chunk1, xnor_partial;
+        logic [K_MAX_P-1:0]           sign_eq1, sign_eq0, sign_eq_all0;
+        int i;  // for loops if needed
+
+        // Initialize signals
         start = 0;
         accumulate = 0;
         last_chunk = 0;
@@ -146,23 +151,19 @@ module tb_dotprod_phase2_sparse;
         //    No correction (sign_xi=1)
         // --------------------------------------------------------------------
         $display("Test 1: Single chunk, sign_xi=+1, all sign_eq=1");
-        automatic logic [K_MAX_P*IC_BITS_P-1:0] xnor1 = 0;
-        automatic logic [K_MAX_P-1:0]           sign_eq1 = 4'b1111;
-        xnor1 = pack_xnor_J(0, 4'sd5)  | pack_xnor_J(1, 4'sd-3) |
-                pack_xnor_J(2, 4'sd2)  | pack_xnor_J(3, 4'sd1);
+        xnor1 = 0;
+        sign_eq1 = 4'b1111;
+        xnor1 |= pack_xnor_J(0, 4'sd(5));
+        xnor1 |= pack_xnor_J(1, -4'sd3);        // -3
+        xnor1 |= pack_xnor_J(2, 4'sd(2));
+        xnor1 |= pack_xnor_J(3, 4'sd(1));
         test_case("Test1", 0, 1, 4, 1, xnor1, sign_eq1, 5);
 
         // --------------------------------------------------------------------
         // 2. Same but sign_xi=0 (negative), last_chunk=1
-        //    Now sign_eq all 0 (since sign_xi=0, sign_j=+1? Actually sign_j is
-        //    stored in sign_eq? No, sign_eq is output from bitcell indicating equality.
-        //    For the RTL, sign_eq = 1 if sign_j == sign_xi.
-        //    If sign_xi=0, and sign_j=1, sign_eq=0. So we set sign_eq=0.
+        //    Now sign_eq all 0 (since sign_xi=0, sign_j=+1, so sign_eq=0)
         //    The RTL correction: last_chunk && !sign_xi => adds valid_count (4)
-        //    Expected: chunk_sum = Σ ~xnor_J? Actually when sign_eq=0, corrected = ~xnor_J.
-        //    xnor_J = J (since rwl=sign_xi? but that's not how it works; but in test we directly feed xnor_J.
-        //    We'll compute as per RTL: corrected = sign_eq ? xnor_J : ~xnor_J.
-        //    So each term becomes ~J (bitwise NOT), then as signed.
+        //    Expected: chunk_sum = Σ ~xnor_J (because sign_eq=0 => corrected = ~xnor_J)
         //    For 4-bit: J=5 (0101) -> ~J = 1010 = -6 (signed)
         //    J=-3 (1101) -> ~J = 0010 = +2
         //    J=2  (0010) -> ~J = 1101 = -3
@@ -172,8 +173,7 @@ module tb_dotprod_phase2_sparse;
         //    So expected = -5.
         // --------------------------------------------------------------------
         $display("Test 2: Single chunk, sign_xi=0, sign_eq=0, correction adds 4");
-        automatic logic [K_MAX_P-1:0] sign_eq0 = 4'b0000;
-        // We use same xnor_J values as above (they represent J).
+        sign_eq0 = 4'b0000;
         test_case("Test2", 0, 1, 4, 0, xnor1, sign_eq0, -5);
 
         // --------------------------------------------------------------------
@@ -185,16 +185,14 @@ module tb_dotprod_phase2_sparse;
         //    No correction (sign_xi=1).
         // --------------------------------------------------------------------
         $display("Test 3: Two chunks, sign_xi=+1, no correction");
-        automatic logic [K_MAX_P*IC_BITS_P-1:0] xnor_chunk0 = 0;
-        automatic logic [K_MAX_P*IC_BITS_P-1:0] xnor_chunk1 = 0;
-        xnor_chunk0 = pack_xnor_J(0, 4'sd1) | pack_xnor_J(1, 4'sd2) |
-                      pack_xnor_J(2, 4'sd3) | pack_xnor_J(3, 4'sd4);
-        xnor_chunk1 = pack_xnor_J(0, 4'sd5) | pack_xnor_J(1, 4'sd6);
+        xnor_chunk0 = 0;
+        xnor_chunk1 = 0;
+        xnor_chunk0 |= pack_xnor_J(0, 4'sd(1)) | pack_xnor_J(1, 4'sd(2)) |
+                       pack_xnor_J(2, 4'sd(3)) | pack_xnor_J(3, 4'sd(4));
+        xnor_chunk1 |= pack_xnor_J(0, 4'sd(5)) | pack_xnor_J(1, 4'sd(6));
         // Run chunk0: accumulate=0, last_chunk=0, valid_count=4
         test_case("Test3a chunk0", 0, 0, 4, 1, xnor_chunk0, 4'b1111, 10); // sum=10
         // Run chunk1: accumulate=1, last_chunk=1, valid_count=2
-        // Expected after chunk1: previous (10) + (5+6) = 21
-        // But note: last_chunk=1, sign_xi=1 so no correction.
         test_case("Test3b chunk1", 1, 1, 2, 1, xnor_chunk1, 2'b11, 21);
 
         // --------------------------------------------------------------------
@@ -209,25 +207,25 @@ module tb_dotprod_phase2_sparse;
         //    Sum = -14. No correction (last_chunk=0).
         //    Chunk1: ~5 (0101) -> ~5 = 1010 = -6; ~6 (0110) -> ~6 = 1001 = -7
         //    Sum = -13. Then base = previous (-14) + (-13) = -27.
-        //    Correction on last_chunk: adds valid_count (which is total row count = 6? but valid_count on last chunk is 2).
-        //    The RTL adds valid_count (2) only, not total row count. So expected = -27 + 2 = -25.
-        //    This matches the bug: it adds the current chunk's valid_count, not the total row count.
-        //    So expected = -25.
+        //    Correction on last_chunk: adds valid_count (which is total row count? RTL adds valid_count of current chunk, i.e. 2)
+        //    So expected = -27 + 2 = -25.
+        //    This matches the current RTL (adds current valid_count).
         // --------------------------------------------------------------------
-        $display("Test 4: Two chunks, sign_xi=0, correction on last chunk (bug)");
-        automatic logic [K_MAX_P-1:0] sign_eq_all0 = 4'b0000;
+        $display("Test 4: Two chunks, sign_xi=0, correction on last chunk (adds current valid_count)");
+        sign_eq_all0 = 4'b0000;
         // Chunk0
         test_case("Test4a chunk0", 0, 0, 4, 0, xnor_chunk0, sign_eq_all0, -14);
         // Chunk1 (last_chunk=1, accumulate=1, valid_count=2)
-        test_case("Test4b chunk1", 1, 1, 2, 0, xnor_chunk1, 2'b00, -25);  // -27 + 2 = -25
+        test_case("Test4b chunk1", 1, 1, 2, 0, xnor_chunk1, 2'b00, -25);
 
         // --------------------------------------------------------------------
         // 5. Test valid_count < K_MAX (partial chunk) and partial sign_eq.
         //    sign_xi=+1, valid_count=2, sign_eq=11, J=[7, -2] -> sum=5
         // --------------------------------------------------------------------
         $display("Test 5: Partial chunk, sign_xi=+1");
-        automatic logic [K_MAX_P*IC_BITS_P-1:0] xnor_partial = 0;
-        xnor_partial = pack_xnor_J(0, 4'sd7) | pack_xnor_J(1, 4'sd-2);
+        xnor_partial = 0;
+        xnor_partial |= pack_xnor_J(0, 4'sd(7));
+        xnor_partial |= pack_xnor_J(1, -4'sd2);    // -2
         test_case("Test5", 0, 1, 2, 1, xnor_partial, 2'b11, 5);
 
         // --------------------------------------------------------------------
