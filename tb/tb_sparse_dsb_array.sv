@@ -1,4 +1,4 @@
-// tb_sparse_dsb_array.sv — multi‑case test with J = +1 and aggressive parameters
+// tb_sparse_dsb_array.sv — multi‑case test with aggressive dynamics
 `timescale 1ns/1ps
 
 module tb_sparse_dsb_array;
@@ -73,13 +73,13 @@ module tb_sparse_dsb_array;
         .scan_done   (scan_done)
     );
 
-    // ── New parameters for aggressive dynamics ────────────────────────────
-    // a = 0.1  (damping reduced)
-    // c0 = 2.0 (coupling increased)
-    // dt = 0.05 (time step increased)
-    localparam int A0_FP = 1638;     // 0.1 * 2^14
-    localparam int C0_FP = 32768;    // 2.0 * 2^14
-    localparam int DT_FP = 819;      // 0.05 * 2^14
+    // ── Aggressive parameters for dynamics ────────────────────────────────
+    // a = 0      (no damping)
+    // c0 = 20.0  (strong coupling)
+    // dt = 0.1   (large time step)
+    localparam int A0_FP = 0;
+    localparam int C0_FP = 20 * 16384;   // 20.0 in Q0.14
+    localparam int DT_FP = 1638;         // 0.1 in Q0.14
 
     // ── Testbench helpers ──────────────────────────────────────────────────
     int step_count = 0;
@@ -148,8 +148,9 @@ module tb_sparse_dsb_array;
             mm_write(MAIN_EDGE_BASE + e, pack_edge(r, c, w));
         end
 
-        // 2. Initialize x
+        // 2. Initialize x with small values (to avoid immediate wall hits)
         for (int i = 0; i < tc.num_nodes; i++) begin
+            // Use small values: ±5 scaled by 2^(XY_FRAC-4) = ±5*1024
             write_x(i, XY_W'(tc.x_init[i] << (XY_FRAC - 4)));
         end
 
@@ -165,11 +166,11 @@ module tb_sparse_dsb_array;
         run = 1;
 
         wait_high(scan_done, 10000, "scan_done");
-        wait_high(schedule_done, 1_000_000, "schedule_done");
+        wait_high(schedule_done, 2_000_000, "schedule_done");
         @(posedge clk);
         run = 0;
 
-        // 4. Evaluate
+        // 4. Evaluate using only the first active_n bits of signs_out
         cut = 0;
         for (e = 0; e < tc.num_edges; e++) begin
             int r = tc.edges[e][0];
@@ -221,7 +222,7 @@ module tb_sparse_dsb_array;
             tc.edges[i] = '{i, j, 1};
         end
         tc.x_init = new[n];
-        for (int i = 0; i < n; i++) tc.x_init[i] = (i % 2 == 0) ? 50 : -30;
+        for (int i = 0; i < n; i++) tc.x_init[i] = (i % 2 == 0) ? 5 : -5;
         tc.min_cut = n/2;
         tc.max_energy = -1;
         return tc;
@@ -241,7 +242,7 @@ module tb_sparse_dsb_array;
             end
         end
         tc.x_init = new[n];
-        for (int i = 0; i < n; i++) tc.x_init[i] = (i < a) ? 40 : -40;
+        for (int i = 0; i < n; i++) tc.x_init[i] = (i < a) ? 5 : -5;
         tc.min_cut = tc.num_edges / 2;
         tc.max_energy = -1;
         return tc;
@@ -271,7 +272,7 @@ module tb_sparse_dsb_array;
             if (i != j) tc.edges[idx++] = '{i, j, 1};
         end
         tc.x_init = new[n];
-        for (int i = 0; i < n; i++) tc.x_init[i] = (i % 2 == 0) ? 30 : -30;
+        for (int i = 0; i < n; i++) tc.x_init[i] = (i % 2 == 0) ? 5 : -5;
         tc.min_cut = num_edges / 3;
         tc.max_energy = -1;
         return tc;
@@ -286,17 +287,17 @@ module tb_sparse_dsb_array;
         $dumpfile("tb_sparse_dsb_array.vcd");
         $dumpvars(0, tb_sparse_dsb_array);
 
-        // Cases with increased Nstep
-        cases[0] = cycle_case(4, 500);
-        cases[1] = cycle_case(8, 800);
-        cases[2] = complete_bipartite_case(4,4, 800);
-        cases[3] = random_graph_case(10, 3, 1000);
+        // Cases with generous Nstep
+        cases[0] = cycle_case(4, 2000);
+        cases[1] = cycle_case(8, 3000);
+        cases[2] = complete_bipartite_case(4,4, 3000);
+        cases[3] = random_graph_case(10, 3, 4000);
 
         rst_n = 0;
         repeat (4) @(posedge clk);
         rst_n = 1;
         repeat (2) @(posedge clk);
-        $display("[%0t] Reset released (a=0.1, c0=2.0, dt=0.05)", $time);
+        $display("[%0t] Reset released (a=0, c0=20.0, dt=0.1)", $time);
 
         total_passed = 0;
         total_cases = $size(cases);
@@ -319,7 +320,7 @@ module tb_sparse_dsb_array;
 
     // ── Watchdog timeout ──────────────────────────────────────────────────
     initial begin
-        #100_000_000;
+        #200_000_000;
         $fatal(1, "GLOBAL TIMEOUT");
     end
 
@@ -327,7 +328,9 @@ module tb_sparse_dsb_array;
     always @(posedge clk) begin
         if (step_done) begin
             step_count++;
-            $display("[%0t] step %0d done  signs = %0b", $time, step_count, signs_out);
+            // Only print every 10 steps to reduce output
+            if (step_count % 10 == 0)
+                $display("[%0t] step %0d done  signs = %0b", $time, step_count, signs_out);
         end
     end
 
