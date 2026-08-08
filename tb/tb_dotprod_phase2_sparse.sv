@@ -153,10 +153,10 @@ module tb_dotprod_phase2_sparse;
         $display("Test 1: Single chunk, sign_xi=+1, all sign_eq=1");
         xnor1 = 0;
         sign_eq1 = 4'b1111;
-        xnor1 |= pack_xnor_J(0, 4'sd(5));
+        xnor1 |= pack_xnor_J(0, 4'sd5);
         xnor1 |= pack_xnor_J(1, -4'sd3);        // -3
-        xnor1 |= pack_xnor_J(2, 4'sd(2));
-        xnor1 |= pack_xnor_J(3, 4'sd(1));
+        xnor1 |= pack_xnor_J(2, 4'sd2);
+        xnor1 |= pack_xnor_J(3, 4'sd1);
         test_case("Test1", 0, 1, 4, 1, xnor1, sign_eq1, 5);
 
         // --------------------------------------------------------------------
@@ -187,9 +187,12 @@ module tb_dotprod_phase2_sparse;
         $display("Test 3: Two chunks, sign_xi=+1, no correction");
         xnor_chunk0 = 0;
         xnor_chunk1 = 0;
-        xnor_chunk0 |= pack_xnor_J(0, 4'sd(1)) | pack_xnor_J(1, 4'sd(2)) |
-                       pack_xnor_J(2, 4'sd(3)) | pack_xnor_J(3, 4'sd(4));
-        xnor_chunk1 |= pack_xnor_J(0, 4'sd(5)) | pack_xnor_J(1, 4'sd(6));
+        xnor_chunk0 |= pack_xnor_J(0, 4'sd1);
+        xnor_chunk0 |= pack_xnor_J(1, 4'sd2);
+        xnor_chunk0 |= pack_xnor_J(2, 4'sd3);
+        xnor_chunk0 |= pack_xnor_J(3, 4'sd4);
+        xnor_chunk1 |= pack_xnor_J(0, 4'sd5);
+        xnor_chunk1 |= pack_xnor_J(1, 4'sd6);
         // Run chunk0: accumulate=0, last_chunk=0, valid_count=4
         test_case("Test3a chunk0", 0, 0, 4, 1, xnor_chunk0, 4'b1111, 10); // sum=10
         // Run chunk1: accumulate=1, last_chunk=1, valid_count=2
@@ -224,7 +227,7 @@ module tb_dotprod_phase2_sparse;
         // --------------------------------------------------------------------
         $display("Test 5: Partial chunk, sign_xi=+1");
         xnor_partial = 0;
-        xnor_partial |= pack_xnor_J(0, 4'sd(7));
+        xnor_partial |= pack_xnor_J(0, 4'sd7);
         xnor_partial |= pack_xnor_J(1, -4'sd2);    // -2
         test_case("Test5", 0, 1, 2, 1, xnor_partial, 2'b11, 5);
 
