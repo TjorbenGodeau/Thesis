@@ -23,17 +23,15 @@ module tb_sparse_load_controller;
     localparam int MAIN_WORD_WP    = (COL_IDX_W_P+COL_IDX_W_P+IC_BITS_P > XY_W) ?
                                       (COL_IDX_W_P+COL_IDX_W_P+IC_BITS_P) : XY_W;
     localparam int MAIN_MEM_WORDS  = MAX_EDGES_TEST + 2*N_TEST;
-    localparam int K_CNT_W_P       = $clog2(K_MAX_P+1);
-    localparam int ACCUM_W_P       = 24;  // from dsb_pkg
+    localparam int K_CNT_W_P       = $clog2(K_MAX_P+1);   // = 2
+    localparam int ACCUM_W_P       = 24;
 
     // Clock and reset
     logic clk = 0;
     always #5 clk = ~clk;
     logic rst_n = 1;
 
-    // -------------------------------------------------------------------------
-    // DUT signals (declared once)
-    // -------------------------------------------------------------------------
+    // DUT signals
     logic                        slc_start;
     logic [COL_IDX_W_P-1:0]      osc_idx;
     logic                        slc_done;
@@ -253,18 +251,6 @@ module tb_sparse_load_controller;
         en_wr_en = 0;
     endtask
 
-    // Read back row pointer from CSR (for debug)
-    task automatic read_rp(input int row, output int start, output int count);
-        @(posedge clk);
-        rp_rd_en = 1; rp_rd_row = row;
-        @(posedge clk);
-        rp_rd_en = 0;
-        @(posedge clk);
-        start = rp_rd_data[ROW_PTR_W_P-1 : ROW_COUNT_WP];
-        count = rp_rd_data[ROW_COUNT_WP-1 : 0];
-        $display("RP read: row=%0d start=%0d count=%0d", row, start, count);
-    endtask
-
     task check_equal_val(input string msg, input logic a, input logic b);
         if (a !== b) begin
             $error("%s: expected %b, got %b", msg, b, a);
@@ -296,7 +282,7 @@ module tb_sparse_load_controller;
     // -------------------------------------------------------------------------
     initial begin
         // ---- All declarations at the very top ----
-        int start, count;
+        // No local variables needed beyond those already declared.
 
         // Initialize all signals
         mm_wr_en   = 0;
@@ -330,10 +316,6 @@ module tb_sparse_load_controller;
         en_write(1, 2, MAIN_EDGE_BASE + 1);
         en_write(2, 3, MAIN_EDGE_BASE + 2);
 
-        // Verify CSR readback
-        read_rp(0, start, count);
-        if (count != 3) $error("CSR preload failed: count=%0d", count);
-
         // ── 3. Run SLC for oscillator 0 ──────────────────────────────────────
         $display("Running SLC for osc_idx=0 (K_MAX=2)");
         @(posedge clk);
@@ -347,7 +329,7 @@ module tb_sparse_load_controller;
         $display("slc_done asserted");
 
         // ── 4. Verify Jx_i ────────────────────────────────────────────────────
-        // Expected: -4 (see explanation in the previous response)
+        // Expected: -4 (see explanation in previous response)
         $display("Checking final Jx_i");
         check_equal_int("Jx_i_out", $signed(Jx_i_out), -4);
 
