@@ -46,6 +46,7 @@
 //  shape as the prototype scanner: READ -> WAIT -> (eval/write) -> next.
 // =============================================================================
 
+`timescale 1ns/1ps
 module sparsity_scanner
     import dsb_pkg::*;
     import dsb_sparse_pkg::*;

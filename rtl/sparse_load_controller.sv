@@ -53,6 +53,7 @@
 //  SLC_WAIT_PH2   : wait for dotprod done (1 cycle in current dotprod impl)
 // =============================================================================
 
+`timescale 1ns/1ps
 module sparse_load_controller
     import dsb_pkg::*;
     import dsb_sparse_pkg::*;

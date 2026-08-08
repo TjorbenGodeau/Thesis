@@ -41,6 +41,7 @@
 //       The XNOR fires when stored sign == rwl, i.e. sign(x_j) == sign(x_i).
 // =============================================================================
 
+`timescale 1ns/1ps
 module sparse_compute_memory
     import dsb_pkg::*;
     import dsb_sparse_pkg::*;

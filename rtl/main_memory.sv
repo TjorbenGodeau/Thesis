@@ -26,6 +26,7 @@
 //                   cycle later with rd_valid=1
 // =============================================================================
 
+`timescale 1ns/1ps
 module main_memory
     import dsb_pkg::*;
     import dsb_sparse_pkg::*;

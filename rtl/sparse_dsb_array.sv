@@ -40,6 +40,7 @@
 //     the dSB sweep over oscillators 0..active_n-1.
 // =============================================================================
 
+`timescale 1ns/1ps
 module sparse_dsb_array
     import dsb_pkg::*;
     import dsb_sparse_pkg::*;

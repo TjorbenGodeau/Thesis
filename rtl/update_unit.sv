@@ -38,6 +38,8 @@
 //     The always_ff samples x_clamped → x_i_new, y_clamped → y_i_new
 //     on posedge clk when start=1.
 // =============================================================================
+
+`timescale 1ns/1ps
 module update_unit
   import dsb_pkg::*;
 #(

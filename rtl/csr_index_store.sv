@@ -42,6 +42,7 @@
 //                     maddr = en_rd_data[MAIN_ADDR_W-1 : 0]
 // =============================================================================
 
+`timescale 1ns/1ps
 module csr_index_store
     import dsb_pkg::*;
     import dsb_sparse_pkg::*;

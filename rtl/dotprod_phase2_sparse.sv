@@ -38,6 +38,7 @@
 //  Same as original: done fires one cycle after start.
 // =============================================================================
 
+`timescale 1ns/1ps
 module dotprod_phase2_sparse
     import dsb_pkg::*;
     import dsb_sparse_pkg::*;

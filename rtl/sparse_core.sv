@@ -38,6 +38,7 @@
 //  SC_UPDATE    : fire update_unit, wait one cycle for done
 // =============================================================================
 
+`timescale 1ns/1ps
 module sparse_core
     import dsb_pkg::*;
     import dsb_sparse_pkg::*;
