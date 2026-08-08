@@ -85,7 +85,7 @@ module tb_dotprod_phase2_sparse;
         return base;
     endfunction
 
-    // Helper to run a test case
+    // ─── Corrected test_case: check done and result on the same edge ──────
     task automatic test_case(
         input string            label,
         input logic             accumulate_in,
@@ -110,10 +110,13 @@ module tb_dotprod_phase2_sparse;
         @(posedge clk);
         start = 0;
 
-        // Wait for done (should be next cycle)
-        @(posedge clk);
-        if (!done) $error("%s: done not asserted after one cycle", label);
-        @(posedge clk);  // extra cycle for Jx_i to stabilise
+        // Now done and Jx_i are updated on this edge; check immediately
+        if (!done) begin
+            $error("%s: done not asserted on the cycle after start", label);
+            error_count++;
+        end else begin
+            $display("%s: done OK", label);
+        end
 
         // Check result
         if (Jx_i !== expected) begin
@@ -202,13 +205,9 @@ module tb_dotprod_phase2_sparse;
         // 4. Same as 3, but sign_xi=0 (negative), to test correction only on last chunk.
         //    Chunk0: sign_xi=0, sign_eq=0 (all terms inverted), accumulate=0, last_chunk=0
         //    Chunk1: sign_xi=0, sign_eq=0 (all terms inverted), accumulate=1, last_chunk=1
-        //    For chunk0: sum of ~J for [1,2,3,4] -> ~1=-2, ~2=-3, ~3=-4, ~4=-5? Wait 4-bit signed:
-        //      1 (0001) -> ~1 = 1110 = -2
-        //      2 (0010) -> ~2 = 1101 = -3
-        //      3 (0011) -> ~3 = 1100 = -4
-        //      4 (0100) -> ~4 = 1011 = -5
+        //    For chunk0: sum of ~J for [1,2,3,4] -> ~1=-2, ~2=-3, ~3=-4, ~4=-5
         //    Sum = -14. No correction (last_chunk=0).
-        //    Chunk1: ~5 (0101) -> ~5 = 1010 = -6; ~6 (0110) -> ~6 = 1001 = -7
+        //    Chunk1: ~5 (0101) -> ~5 = -6; ~6 (0110) -> ~6 = -7
         //    Sum = -13. Then base = previous (-14) + (-13) = -27.
         //    Correction on last_chunk: adds valid_count (which is total row count? RTL adds valid_count of current chunk, i.e. 2)
         //    So expected = -27 + 2 = -25.
