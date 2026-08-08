@@ -1,4 +1,4 @@
-// tb_sparse_dsb_array.sv — multi‑case test
+// tb_sparse_dsb_array.sv — multi‑case test with correct declarations
 `timescale 1ns/1ps
 
 module tb_sparse_dsb_array;
@@ -73,6 +73,11 @@ module tb_sparse_dsb_array;
         .scan_done   (scan_done)
     );
 
+    // ── Constants ─────────────────────────────────────────────────────────
+    localparam int A0_FP = 16384;
+    localparam int DT_FP = 164;
+    localparam int C0_FP = 8192;
+
     // ── Testbench helpers ──────────────────────────────────────────────────
     int step_count = 0;
 
@@ -144,7 +149,7 @@ module tb_sparse_dsb_array;
 
         // 2. Initialize x
         for (int i = 0; i < tc.num_nodes; i++) begin
-            write_x(i, XY_W'(tc.x_init[i] << (XY_FRAC - 4))); // small scaling
+            write_x(i, XY_W'(tc.x_init[i] << (XY_FRAC - 4)));
         end
 
         // 3. Set parameters and start
@@ -201,11 +206,11 @@ module tb_sparse_dsb_array;
         if (pass) $display("  PASS");
         else      $display("  FAIL");
         $display("====================================================");
-        #100;  // small delay between cases
+        #100;
     endtask
 
-    // ── Test cases ────────────────────────────────────────────────────────
-    function automatic test_case_t cycle_case(int n, int w, int nstep);
+    // ── Test case generators ─────────────────────────────────────────────
+    function automatic test_case_t cycle_case(int n, int nstep);
         test_case_t tc;
         tc.name = $sformatf("%0d‑node cycle", n);
         tc.num_nodes = n;
@@ -253,7 +258,6 @@ module tb_sparse_dsb_array;
         tc.num_edges = num_edges;
         tc.nstep = nstep;
         tc.edges = new[num_edges];
-        // Simple random generation using a pseudo‑random pattern
         int idx = 0;
         for (int i = 0; i < n && idx < num_edges; i++) begin
             for (int j = i+1; j < n && idx < num_edges; j++) begin
@@ -262,7 +266,7 @@ module tb_sparse_dsb_array;
                 end
             end
         end
-        // In case we didn't fill, pad with some edges
+        // Pad if necessary
         while (idx < num_edges) begin
             int i = idx % n;
             int j = (idx + 7) % n;
@@ -272,27 +276,27 @@ module tb_sparse_dsb_array;
         end
         tc.x_init = new[n];
         for (int i = 0; i < n; i++) tc.x_init[i] = (i % 2 == 0) ? 30 : -30;
-        tc.min_cut = num_edges / 3;   // at least 1/3 cut
+        tc.min_cut = num_edges / 3;
         tc.max_energy = -1;
         return tc;
     endfunction
 
-    // ── Constants ─────────────────────────────────────────────────────────
-    localparam int A0_FP = 16384;
-    localparam int DT_FP = 164;
-    localparam int C0_FP = 8192;
-
     // ── Main test sequence ──────────────────────────────────────────────
     initial begin
+        // ---- All declarations at the top ----
+        test_case_t cases[4];
+        int total_passed;
+        int total_cases;
+        bit pass;
+
         $dumpfile("tb_sparse_dsb_array.vcd");
         $dumpvars(0, tb_sparse_dsb_array);
 
         // Build test case list
-        test_case_t cases[4];
         cases[0] = cycle_case(4, 200);
         cases[1] = cycle_case(8, 300);
         cases[2] = complete_bipartite_case(4,4, 400);
-        cases[3] = random_graph_case(10, 3, 500); // density 0.3
+        cases[3] = random_graph_case(10, 3, 500);
 
         rst_n = 0;
         repeat (4) @(posedge clk);
@@ -300,11 +304,10 @@ module tb_sparse_dsb_array;
         repeat (2) @(posedge clk);
         $display("[%0t] Reset released", $time);
 
-        int total_passed = 0;
-        int total_cases = cases.size();
+        total_passed = 0;
+        total_cases = cases.size();
 
         for (int c = 0; c < total_cases; c++) begin
-            bit pass;
             run_case(cases[c], pass);
             if (pass) total_passed++;
         end
@@ -322,7 +325,7 @@ module tb_sparse_dsb_array;
 
     // ── Watchdog timeout ──────────────────────────────────────────────────
     initial begin
-        #50_000_000;   // longer timeout for multiple cases
+        #50_000_000;
         $fatal(1, "GLOBAL TIMEOUT");
     end
 
