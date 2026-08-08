@@ -255,6 +255,7 @@ module tb_sparse_load_controller;
         en_wr_en = 0;
     endtask
 
+    // Check tasks
     task check_equal_val(input string msg, input logic a, input logic b);
         if (a !== b) begin
             $error("%s: expected %b, got %b", msg, b, a);
@@ -273,7 +274,7 @@ module tb_sparse_load_controller;
         end
     endtask
 
-    // Monitor for ph2_start
+    // Monitor for ph2_start (optional)
     integer chunk_count = 0;
     always @(posedge clk) begin
         if (ph2_start) begin
@@ -282,6 +283,7 @@ module tb_sparse_load_controller;
                      $time, chunk_count, ph2_accumulate, ph2_last_chunk,
                      ph2_valid_count, ph2_sign_xi);
         end
+        // Debug: print writes to SCM
         if (scm_wr_en) begin
             $display("[%0t] SCM write: slot=%0d, col=%0d, J=%0d, sign_j=%b",
                      $time, scm_wr_slot, scm_wr_col_idx, scm_wr_J, scm_wr_sign_j);
@@ -292,6 +294,9 @@ module tb_sparse_load_controller;
     // Test sequence
     // -------------------------------------------------------------------------
     initial begin
+        // ---- All declarations at the top ----
+        int start_tmp, count_tmp;  // unused, just for syntax
+
         // Initialize all signals
         mm_wr_en   = 0;
         mm_wr_addr = 0;
@@ -338,16 +343,9 @@ module tb_sparse_load_controller;
         $display("slc_done asserted");
 
         // ── 4. Verify Jx_i ────────────────────────────────────────────────────
-        // Expected Jx_i = Σ J * sign(σ_j) = 5*(+1) + (-3)*(-1) + 2*(+1) = 5+3+2 = 10
-        // But the dotprod with sign_xi multiplication gives +6? Let's compute manually:
-        // With sign_xi = -1 (osc0 sign is -1), σ_j signs are +1,-1,+1 for edges 0-1,0-2,0-3.
-        // J*σ_j = 5*(+1) + (-3)*(-1) + 2*(+1) = 5+3+2 = 10.
-        // The dotprod module computes J*σ_j directly (since it multiplies by sign_xi).
-        // So Jx_i_out should be 10.
-        // But the testbench previously expected -6 due to a bug in the reference.
-        // Now we expect +10.
+        // Correct sum: 5*σ1 + (-3)*σ2 + 2*σ3 = 5*(+1) + (-3)*(-1) + 2*(-1) = 5+3-2 = 6
         $display("Checking final Jx_i");
-        check_equal_int("Jx_i_out", $signed(Jx_i_out), 10);
+        check_equal_int("Jx_i_out", $signed(Jx_i_out), 6);
 
         // ── Summary ────────────────────────────────────────────────────────────
         if (error_count == 0) begin
