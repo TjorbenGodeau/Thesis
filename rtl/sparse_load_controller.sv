@@ -1,5 +1,5 @@
 // =============================================================================
-// sparse_load_controller.sv (fixed valid_count)
+// sparse_load_controller.sv — fixed ph2_valid_count
 // =============================================================================
 `timescale 1ns/1ps
 module sparse_load_controller
@@ -214,7 +214,8 @@ module sparse_load_controller
                     ph2_start       <= 1'b1;
                     ph2_accumulate  <= ~first_chunk;
                     ph2_last_chunk  <= is_last_chunk;
-                    ph2_valid_count <= K_CNT_W_P'(chunk_valid);   // FIX: always use chunk size
+                    // ★ FIX: always use chunk_valid, never row_count
+                    ph2_valid_count <= K_CNT_W_P'(chunk_valid);
                     ph2_sign_xi     <= sign_xi;
                     first_chunk     <= 1'b0;
                     state           <= SLC_WAIT_PH2;
