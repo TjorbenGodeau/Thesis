@@ -226,7 +226,7 @@ module tb_sparse_dsb_array_100nodes;
 
     // ── Watchdog timeout ──────────────────────────────────────────────────
     initial begin
-        #2_000_000_000;
+        #200_000_000;
         $fatal(1, "GLOBAL TIMEOUT");
     end
 
