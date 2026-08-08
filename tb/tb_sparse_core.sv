@@ -1,4 +1,4 @@
-// tb_sparse_core.sv — corrected with proper fixed‑point reference model
+// tb_sparse_core.sv — corrected with fixed‑point scaling and Jx computation
 `timescale 1ns/1ps
 
 module tb_sparse_core;
@@ -191,6 +191,7 @@ module tb_sparse_core;
         input logic [N_TEST-1:0] signs
     );
         logic signed [ACCUM_W-1:0] Jx = 0;
+        // Hardcoded edges: (0,1)=5, (0,2)=-3, (0,3)=2
         Jx += 5 * (signs[1] ? 1 : -1);
         Jx += (-3) * (signs[2] ? 1 : -1);
         Jx += 2 * (signs[3] ? 1 : -1);
@@ -223,28 +224,22 @@ module tb_sparse_core;
         logic wall_hit_pos, wall_hit_neg, wall_hit;
 
         // ---- Now procedural assignments ----
-        // Stage A: a*x
         ax_full = $signed({{(PROD_W-XY_W){x[XY_W-1]}}, x}) * $signed({1'b0, a});
         ax_shifted = XY_W'(ax_full >>> (A_BITS-1));
 
-        // Stage B: c0*Jx
         c0jx_full = Jx * $signed({1'b0, c0});
 
-        // Stage C: Δy
         neg_ax = -ax_shifted;
         force_wide = $signed({{(ACCUM_W+XY_FRAC-XY_W){neg_ax[XY_W-1]}}, neg_ax})
                      + $signed(c0jx_full);
         dy_full = force_wide * $signed({1'b0, dt});
         delta_y = XY_W'(dy_full >>> XY_FRAC);
 
-        // Stage D: y_pre
         y_pre = y + delta_y;
 
-        // Stage E: x_pre
         dx_full = y_pre * $signed({1'b0, dt});
         x_pre = x + XY_W'(dx_full >>> XY_FRAC);
 
-        // Stage F: wall
         wall_hit_pos = (x_pre >  $signed(ONE_FP));
         wall_hit_neg = (x_pre < -$signed(ONE_FP));
         wall_hit = wall_hit_pos | wall_hit_neg;
@@ -293,6 +288,7 @@ module tb_sparse_core;
         en_wr_en   = 0;
         start = 0;
         osc_idx = 0;
+        // ★ Scale inputs by ONE_FP
         x_i = 50 * ONE_FP;
         y_i = 10 * ONE_FP;
         a_m = 8192;           // 0.5
@@ -319,7 +315,7 @@ module tb_sparse_core;
         en_write(2, 3, 2);
 
         // ── Compute expected result ──────────────────────────────────────
-        Jx_correct = compute_Jx(osc_signs);
+        Jx_correct = compute_Jx(osc_signs);  // Should be 10
         ref_update(x_i, y_i, Jx_correct, a_m, dt_fp, c0_fp, x_exp, y_exp, sign_exp);
         $display("Expected Jx_i = %0d, x_new=%0d, y_new=%0d, sign=%b",
                  Jx_correct, x_exp, y_exp, sign_exp);
