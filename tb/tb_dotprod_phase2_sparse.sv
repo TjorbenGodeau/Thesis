@@ -112,6 +112,8 @@ module tb_dotprod_phase2_sparse;
         logic [K_MAX_P*IC_BITS_P-1:0] xnor1, xnor1_neg;
         logic [K_MAX_P*IC_BITS_P-1:0] xnor_chunk0, xnor_chunk1;
         logic [K_MAX_P*IC_BITS_P-1:0] xnor_c0_neg, xnor_c1_neg, xnor_partial;
+        logic [K_MAX_P*IC_BITS_P-1:0] xnor_sparse;
+        logic [K_MAX_P-1:0]           sign_eq_sparse;
 
         start       = 0;
         accumulate  = 0;
@@ -133,8 +135,7 @@ module tb_dotprod_phase2_sparse;
         xnor1 |= pack_xnor_J(3, 4'sd1);
         run_test("Test1", 0, 1, 4, 1, xnor1, 4'b1111, 5);
 
-        // Test 2: sign_xi=-1, same J, all sign_eq=0
-        // For sign_xi=-1, the bitcell output is ~J (not J)
+        // Test 2: sign_xi=-1, same J, all sign_eq=0 → sum=-5
         $display("Test 2: sign_xi=-1, all sign_eq=0");
         xnor1_neg = 0;
         xnor1_neg |= pack_xnor_J(0, ~4'sd5);
@@ -153,7 +154,7 @@ module tb_dotprod_phase2_sparse;
         run_test("Test3a chunk0", 0, 0, 4, 1, xnor_chunk0, 4'b1111, 10);
         run_test("Test3b chunk1", 1, 1, 2, 1, xnor_chunk1, 2'b11, 21);
 
-        // Test 4: Two chunks, sign_xi=-1 (all sign_eq=0)
+        // Test 4: Two chunks, sign_xi=-1 (all sign_eq=0) → sums are negative
         $display("Test 4: Two chunks, sign_xi=-1 (all sign_eq=0)");
         xnor_c0_neg = 0;
         xnor_c1_neg = 0;
@@ -175,17 +176,15 @@ module tb_dotprod_phase2_sparse;
         // Expected sum = 5*1 + (-3)*(-1) + 2*1 = 10
         // --------------------------------------------------------------------
         $display("Test 6: Sparse core scenario (sign_xi=-1, J=[5,-3,2], signs=[+1,-1,+1])");
-
-        // Build xnor_J for sign_xi=-1: xnor = ~J (bitwise NOT of J)
-        logic [K_MAX_P*IC_BITS_P-1:0] xnor_sparse = 0;
-        xnor_sparse |= pack_xnor_J(0, ~4'sd5);    // ~5 = -6
-        xnor_sparse |= pack_xnor_J(1, ~(-4'sd3)); // ~(-3) = +2 (since -3 is 1101, ~ is 0010 = +2)
-        xnor_sparse |= pack_xnor_J(2, ~4'sd2);    // ~2 = -3
+        xnor_sparse = 0;
+        // For sign_xi=-1, xnor = ~J (bitwise NOT)
+        xnor_sparse |= pack_xnor_J(0, ~4'sd5);    // ~5 = 1010 = -6
+        xnor_sparse |= pack_xnor_J(1, ~(-4'sd3)); // ~(-3) = 0010 = +2 (since -3 is 1101, ~ is 0010)
+        xnor_sparse |= pack_xnor_J(2, ~4'sd2);    // ~2 = 1101 = -3
         // slot 3 unused, leave 0
 
         // sign_eq = (σ_j == sign_xi) => σ_j=+1, sign_xi=-1 => 0; σ_j=-1 => 1
-        logic [K_MAX_P-1:0] sign_eq_sparse = 3'b010;  // slot0:0, slot1:1, slot2:0
-
+        sign_eq_sparse = 3'b010;  // slot0:0, slot1:1, slot2:0 (slots 0..2 only, slot3 don't care)
         run_test("Test6", 0, 1, 3, 0, xnor_sparse, sign_eq_sparse, 10);
 
         // Summary
