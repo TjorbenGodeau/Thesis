@@ -121,6 +121,12 @@ module tb_sparse_dsb_array_100nodes;
 
     // ── Main test ────────────────────────────────────────────────────────
     initial begin
+        // ---- All declarations at the top ----
+        int cut;
+        int energy;
+        bit pass;
+        int r, c, val;
+
         $dumpfile("tb_sparse_dsb_array_100nodes.vcd");
         $dumpvars(0, tb_sparse_dsb_array_100nodes);
 
@@ -139,10 +145,9 @@ module tb_sparse_dsb_array_100nodes;
 
         // ── 1. Load all edges (J = +1) ──────────────────────────────────
         $display("[%0t] Loading %0d edges...", $time, EDGES);
-        for (int e = 0, edge_idx = 0; edge_idx < EDGES; edge_idx++) begin
-            // Generate K_{50,50} edges: from nodes 0..49 to nodes 50..99
-            int r = edge_idx / HALF;        // 0..49
-            int c = HALF + (edge_idx % HALF); // 50..99
+        for (int edge_idx = 0; edge_idx < EDGES; edge_idx++) begin
+            r = edge_idx / HALF;        // 0..49
+            c = HALF + (edge_idx % HALF); // 50..99
             mm_write(MAIN_EDGE_BASE + edge_idx, pack_edge(r, c, 1));
             if (edge_idx % 500 == 0) $display("  loaded %0d edges", edge_idx);
         end
@@ -151,8 +156,7 @@ module tb_sparse_dsb_array_100nodes;
         // ── 2. Initialize x with small random values ──────────────────
         $display("[%0t] Initialising x with small random values", $time);
         for (int i = 0; i < NODES; i++) begin
-            // Use a simple deterministic pattern: ±5
-            int val = (i % 2 == 0) ? 5 : -5;
+            val = (i % 2 == 0) ? 5 : -5;
             write_x(i, XY_W'(val << (XY_FRAC - 4)));
         end
 
@@ -176,17 +180,17 @@ module tb_sparse_dsb_array_100nodes;
         $display("[%0t] schedule_done", $time);
 
         // ── 4. Evaluate result ────────────────────────────────────────
-        int cut = 0;
+        cut = 0;
         for (int e = 0; e < EDGES; e++) begin
-            int r = e / HALF;
-            int c = HALF + (e % HALF);
+            r = e / HALF;
+            c = HALF + (e % HALF);
             if (signs_out[r] !== signs_out[c]) cut++;
         end
 
-        int energy = 0;
+        energy = 0;
         for (int e = 0; e < EDGES; e++) begin
-            int r = e / HALF;
-            int c = HALF + (e % HALF);
+            r = e / HALF;
+            c = HALF + (e % HALF);
             int s1 = signs_out[r] ? 1 : -1;
             int s2 = signs_out[c] ? 1 : -1;
             energy += s1 * s2;   // J = +1
@@ -198,7 +202,7 @@ module tb_sparse_dsb_array_100nodes;
         $display("  Energy = %0d (optimal = -%0d)", energy, EDGES);
         $display("==========================================================");
 
-        bit pass = 1'b1;
+        pass = 1'b1;
         if (cut < EDGES) begin
             $display("  FAIL: cut = %0d, expected %0d", cut, EDGES);
             pass = 1'b0;
