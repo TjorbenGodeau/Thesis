@@ -26,20 +26,21 @@ module tb_sparse_load_controller;
     localparam int K_CNT_W_P       = $clog2(K_MAX_P+1);
     localparam int ACCUM_W_P       = 24;  // from dsb_pkg
 
-    // Clock
+    // Clock and reset
     logic clk = 0;
     always #5 clk = ~clk;
     logic rst_n = 1;
 
     // -------------------------------------------------------------------------
-    // DUT signals for sparse_load_controller
+    // DUT signals (declared once)
     // -------------------------------------------------------------------------
+    // SLC inputs
     logic                        slc_start;
     logic [COL_IDX_W_P-1:0]      osc_idx;
     logic                        slc_done;
     logic [N_TEST-1:0]           osc_signs;
 
-    // CSR read ports
+    // CSR read ports (SLC → CSR)
     logic                        rp_rd_en;
     logic [COL_IDX_W_P-1:0]      rp_rd_row;
     logic [ROW_PTR_W_P-1:0]      rp_rd_data;
@@ -49,26 +50,24 @@ module tb_sparse_load_controller;
     logic [CSR_ENTRY_WP-1:0]     en_rd_data;
     logic                        en_rd_valid;
 
-    // Main memory read ports
+    // Main memory read ports (SLC → MM)
     logic                        mm_rd_en;
     logic [MAIN_ADDR_WP-1:0]     mm_rd_addr;
     logic [MAIN_WORD_WP-1:0]     mm_rd_data;
     logic                        mm_rd_valid;
 
-    // Sparse compute memory write port
+    // SCM write and compute ports (SLC → SCM)
     logic                        scm_wr_en;
     logic [$clog2(K_MAX_P)-1:0]  scm_wr_slot;
     logic [COL_IDX_W_P-1:0]      scm_wr_col_idx;
     logic [IC_BITS_P-1:0]        scm_wr_J;
     logic                        scm_wr_sign_j;
-
-    // Compute port for scm
     logic                        scm_precharge;
     logic [K_MAX_P-1:0]          scm_rwl;
     logic [K_MAX_P*IC_BITS_P-1:0] scm_rbl_J;
     logic [K_MAX_P-1:0]          scm_rbl_signs;
 
-    // Dotprod control (SLC outputs)
+    // Dotprod control (SLC → PH2)
     logic                        ph2_start;
     logic                        ph2_accumulate;
     logic                        ph2_last_chunk;
@@ -76,10 +75,25 @@ module tb_sparse_load_controller;
     logic                        ph2_sign_xi;
     logic                        ph2_done;
 
-    // -------------------------------------------------------------------------
-    // Instantiate real modules
-    // -------------------------------------------------------------------------
+    // Dotprod output
+    logic signed [ACCUM_W_P-1:0] Jx_i_out;
 
+    // Main memory write ports (testbench → MM for pre‑loading)
+    logic                        mm_wr_en;
+    logic [MAIN_ADDR_WP-1:0]     mm_wr_addr;
+    logic [MAIN_WORD_WP-1:0]     mm_wr_data;
+
+    // CSR store write ports (testbench → CSR for pre‑loading)
+    logic                        rp_wr_en;
+    logic [COL_IDX_W_P-1:0]      rp_wr_row;
+    logic [ROW_PTR_W_P-1:0]      rp_wr_data;
+    logic                        en_wr_en;
+    logic [CSR_ADDR_W_P-1:0]     en_wr_addr;
+    logic [CSR_ENTRY_WP-1:0]     en_wr_data;
+
+    // -------------------------------------------------------------------------
+    // Instantiations (single instance of each)
+    // -------------------------------------------------------------------------
     // Main memory
     main_memory #(
         .WORDS_P  (MAIN_MEM_WORDS),
@@ -88,21 +102,14 @@ module tb_sparse_load_controller;
     ) u_mm (
         .clk     (clk),
         .rst_n   (rst_n),
-        .wr_en   (1'b0),          // we pre‑write via initial block using direct writes? Actually we'll write via mm_wr_en in testbench.
-        .wr_addr (mm_wr_addr),    // we need mm_wr_addr and mm_wr_data in testbench, so we'll add them as wires.
+        .wr_en   (mm_wr_en),
+        .wr_addr (mm_wr_addr),
         .wr_data (mm_wr_data),
         .rd_en   (mm_rd_en),
         .rd_addr (mm_rd_addr),
         .rd_data (mm_rd_data),
         .rd_valid(mm_rd_valid)
     );
-    // For testbench, we also need write ports to main memory; we'll drive them directly.
-    // We'll add signals for writing to main memory in the testbench (outside this module).
-    // But we can also write via the same mm_wr_* signals. Let's declare them as regs in testbench.
-    // However, the port list of main_memory expects them; we've tied wr_en=0.
-    // Instead, we can pre‑load main memory by directly modifying the internal mem array via hierarchical reference, but that's not portable.
-    // Better: instantiate main_memory with write ports connected to testbench signals.
-    // I'll adjust: in the testbench, we'll have mm_wr_en, mm_wr_addr, mm_wr_data as regs and connect them.
 
     // CSR index store
     csr_index_store #(
@@ -117,7 +124,7 @@ module tb_sparse_load_controller;
     ) u_csr (
         .clk         (clk),
         .rst_n       (rst_n),
-        .rp_wr_en    (rp_wr_en),   // we'll drive rp_wr_* from testbench to pre‑load
+        .rp_wr_en    (rp_wr_en),
         .rp_wr_row   (rp_wr_row),
         .rp_wr_data  (rp_wr_data),
         .rp_rd_en    (rp_rd_en),
@@ -170,7 +177,7 @@ module tb_sparse_load_controller;
         .sign_xi     (ph2_sign_xi),
         .xnor_J      (scm_rbl_J),
         .sign_eq     (scm_rbl_signs),
-        .Jx_i        (Jx_i_out)   // we'll connect to a wire
+        .Jx_i        (Jx_i_out)
     );
 
     // Sparse load controller (DUT)
@@ -222,52 +229,21 @@ module tb_sparse_load_controller;
     );
 
     // -------------------------------------------------------------------------
-    // Testbench signals and helpers
+    // Testbench helpers and tasks
     // -------------------------------------------------------------------------
-    logic signed [ACCUM_W_P-1:0] Jx_i_out;
+    int error_count = 0;
 
-    // Main memory write ports (for pre‑loading)
-    logic mm_wr_en;
-    logic [MAIN_ADDR_WP-1:0] mm_wr_addr;
-    logic [MAIN_WORD_WP-1:0] mm_wr_data;
+    // Pack edge word
+    function automatic logic [MAIN_WORD_WP-1:0] pack_edge(input int r, c, w);
+        logic [MAIN_WORD_WP-1:0] p;
+        p = '0;
+        p[IC_BITS_P-1:0] = IC_BITS_P'(signed'(w));
+        p[IC_BITS_P +: COL_IDX_W_P] = COL_IDX_W_P'(c);
+        p[MAIN_WORD_WP-1 -: COL_IDX_W_P] = COL_IDX_W_P'(r);
+        return p;
+    endfunction
 
-    // CSR store write ports (for pre‑loading)
-    logic rp_wr_en;
-    logic [COL_IDX_W_P-1:0] rp_wr_row;
-    logic [ROW_PTR_W_P-1:0] rp_wr_data;
-    logic en_wr_en;
-    logic [CSR_ADDR_W_P-1:0] en_wr_addr;
-    logic [CSR_ENTRY_WP-1:0] en_wr_data;
-
-    // Connect main memory write ports
-    // We'll drive them directly in the testbench
-
-    // Re‑instantiate main_memory with write ports correctly:
-    // Actually we already instantiated it with wr_en tied to mm_wr_en, etc.
-    // So we just need to declare those signals and drive them.
-    // In the instantiation above, we set .wr_en   (mm_wr_en) etc. So we need to declare mm_wr_*.
-    // I'll modify the instantiation accordingly.
-
-    // Since I already wrote the instantiation with .wr_en(1'b0), I'll change it.
-    // Let's rewrite the instantiation here correctly:
-
-    main_memory #(
-        .WORDS_P  (MAIN_MEM_WORDS),
-        .WORD_W_P (MAIN_WORD_WP),
-        .ADDR_W_P (MAIN_ADDR_WP)
-    ) u_mm (
-        .clk     (clk),
-        .rst_n   (rst_n),
-        .wr_en   (mm_wr_en),
-        .wr_addr (mm_wr_addr),
-        .wr_data (mm_wr_data),
-        .rd_en   (mm_rd_en),
-        .rd_addr (mm_rd_addr),
-        .rd_data (mm_rd_data),
-        .rd_valid(mm_rd_valid)
-    );
-
-    // Helper tasks for writing to main memory and CSR store
+    // Write to main memory
     task mm_write(input int addr, input logic [MAIN_WORD_WP-1:0] data);
         @(posedge clk);
         mm_wr_en = 1; mm_wr_addr = addr; mm_wr_data = data;
@@ -275,30 +251,25 @@ module tb_sparse_load_controller;
         mm_wr_en = 0;
     endtask
 
+    // Write row pointer
     task rp_write(input int row, input int start, input int count);
-        automatic logic [ROW_PTR_W_P-1:0] data = {CSR_ADDR_W_P'(start), ROW_COUNT_WP'(count)};
+        logic [ROW_PTR_W_P-1:0] data = {CSR_ADDR_W_P'(start), ROW_COUNT_WP'(count)};
         @(posedge clk);
         rp_wr_en = 1; rp_wr_row = row; rp_wr_data = data;
         @(posedge clk);
         rp_wr_en = 0;
     endtask
 
+    // Write CSR entry
     task en_write(input int addr, input int col, input int maddr);
-        automatic logic [CSR_ENTRY_WP-1:0] data = {COL_IDX_W_P'(col), MAIN_ADDR_WP'(maddr)};
+        logic [CSR_ENTRY_WP-1:0] data = {COL_IDX_W_P'(col), MAIN_ADDR_WP'(maddr)};
         @(posedge clk);
         en_wr_en = 1; en_wr_addr = addr; en_wr_data = data;
         @(posedge clk);
         en_wr_en = 0;
     endtask
 
-    // Pack edge word
-    function automatic logic [MAIN_WORD_WP-1:0] pack_edge(input int r, c, w);
-        return {COL_IDX_W_P'(r), COL_IDX_W_P'(c), IC_BITS_P'(signed'(w))};
-    endfunction
-
-    // Test control
-    int error_count = 0;
-
+    // Check tasks
     task check_equal_val(input string msg, input logic a, input logic b);
         if (a !== b) begin
             $error("%s: expected %b, got %b", msg, b, a);
@@ -317,84 +288,7 @@ module tb_sparse_load_controller;
         end
     endtask
 
-    // -------------------------------------------------------------------------
-    // Test sequence
-    // -------------------------------------------------------------------------
-    initial begin
-        // Initialize
-        mm_wr_en   = 0;
-        rp_wr_en   = 0;
-        en_wr_en   = 0;
-        osc_idx    = 0;
-        osc_signs  = 4'b0010; // node0=+1, node1=+1, node2=0 (negative), node3=+1
-        slc_start  = 0;
-
-        repeat (4) @(posedge clk);
-        rst_n = 1;
-        repeat (2) @(posedge clk);
-        $display("=== Starting sparse_load_controller test ===");
-
-        // --------------------------------------------------------------------
-        // 1. Pre‑load main memory with edges: 0-1 (+5), 0-2 (-3), 0-3 (+2)
-        //    Edge addresses: 0,1,2
-        // --------------------------------------------------------------------
-        $display("Test: Pre‑load main memory");
-        mm_write(0, pack_edge(0,1,5));
-        mm_write(1, pack_edge(0,2,-3));
-        mm_write(2, pack_edge(0,3,2));
-
-        // --------------------------------------------------------------------
-        // 2. Pre‑load CSR store: row 0 has 3 entries, start=0, count=3
-        //    Entries: (col=1, maddr=0), (col=2, maddr=1), (col=3, maddr=2)
-        // --------------------------------------------------------------------
-        $display("Test: Pre‑load CSR store");
-        rp_write(0, 0, 3);
-        en_write(0, 1, 0);
-        en_write(1, 2, 1);
-        en_write(2, 3, 2);
-
-        // (Other rows left empty)
-
-        // --------------------------------------------------------------------
-        // 3. Run SLC for oscillator 0
-        // --------------------------------------------------------------------
-        $display("Test: Run SLC for osc_idx=0 with K_MAX=2");
-        @(posedge clk);
-        slc_start = 1;
-        @(posedge clk);
-        slc_start = 0;
-
-        // Wait for done (timeout 1000 cycles)
-        repeat (200) @(posedge clk) if (slc_done) break;
-        if (!slc_done) $fatal("Timeout waiting for slc_done");
-
-        // --------------------------------------------------------------------
-        // 4. Verify final Jx_i
-        //    Expected: J01*sign1 + J02*sign2 + J03*sign3 = 5*(+1) + (-3)*(-1) + 2*(+1) = 5+3+2 = 10
-        // --------------------------------------------------------------------
-        $display("Check Jx_i_out");
-        check_equal_int("Jx_i_out", $signed(Jx_i_out), 10);
-
-        // --------------------------------------------------------------------
-        // 5. Verify ph2 control signals (optional – we can check internal states)
-        //    But we can check that ph2_start pulsed twice and accumulate/last_chunk correct.
-        //    We can sample these signals during the run.
-        //    We'll add monitors.
-        // --------------------------------------------------------------------
-
-        // --------------------------------------------------------------------
-        // Summary
-        // --------------------------------------------------------------------
-        if (error_count == 0) begin
-            $display("=== All tests PASSED ===");
-        end else begin
-            $error("=== %0d tests FAILED ===", error_count);
-            $finish(1);
-        end
-        $finish;
-    end
-
-    // Monitor to watch ph2_start and parameters (optional)
+    // ── Monitor for ph2_start (optional) ──────────────────────────────────────
     integer chunk_count = 0;
     always @(posedge clk) begin
         if (ph2_start) begin
@@ -403,6 +297,75 @@ module tb_sparse_load_controller;
                      $time, chunk_count, ph2_accumulate, ph2_last_chunk,
                      ph2_valid_count, ph2_sign_xi);
         end
+    end
+
+    // -------------------------------------------------------------------------
+    // Test sequence
+    // -------------------------------------------------------------------------
+    initial begin
+        // Initialize all signals
+        mm_wr_en   = 0;
+        mm_wr_addr = 0;
+        mm_wr_data = 0;
+        rp_wr_en   = 0;
+        rp_wr_row  = 0;
+        rp_wr_data = 0;
+        en_wr_en   = 0;
+        en_wr_addr = 0;
+        en_wr_data = 0;
+        osc_idx    = 0;
+        osc_signs  = 4'b0010; // node0=+1, node1=+1, node2=-1 (bit2=0), node3=+1
+        slc_start  = 0;
+
+        repeat (4) @(posedge clk);
+        rst_n = 1;
+        repeat (2) @(posedge clk);
+        $display("=== Starting sparse_load_controller test ===");
+
+        // ── 1. Pre‑load main memory with edges: 0-1 (+5), 0-2 (-3), 0-3 (+2) ──
+        $display("Pre‑loading main memory with edges");
+        mm_write(MAIN_EDGE_BASE + 0, pack_edge(0,1,5));
+        mm_write(MAIN_EDGE_BASE + 1, pack_edge(0,2,-3));
+        mm_write(MAIN_EDGE_BASE + 2, pack_edge(0,3,2));
+
+        // ── 2. Pre‑load CSR store for row 0 ──────────────────────────────────
+        $display("Pre‑loading CSR store for row 0");
+        // row 0: start=0, count=3
+        rp_write(0, 0, 3);
+        // entries: (col=1, maddr=edge0), (col=2, maddr=edge1), (col=3, maddr=edge2)
+        en_write(0, 1, MAIN_EDGE_BASE + 0);
+        en_write(1, 2, MAIN_EDGE_BASE + 1);
+        en_write(2, 3, MAIN_EDGE_BASE + 2);
+
+        // ── 3. Run SLC for oscillator 0 ──────────────────────────────────────
+        $display("Running SLC for osc_idx=0 (K_MAX=2)");
+        @(posedge clk);
+        slc_start = 1;
+        osc_idx   = 0;
+        @(posedge clk);
+        slc_start = 0;
+
+        // Wait for done with timeout
+        repeat (200) @(posedge clk) if (slc_done) break;
+        if (!slc_done) $fatal("Timeout waiting for slc_done");
+        $display("slc_done asserted");
+
+        // ── 4. Verify Jx_i ────────────────────────────────────────────────────
+        // Expected: J01*sign1 + J02*sign2 + J03*sign3 = 5*(+1) + (-3)*(-1) + 2*(+1) = 10
+        $display("Checking final Jx_i");
+        check_equal_int("Jx_i_out", $signed(Jx_i_out), 10);
+
+        // ── 5. Additional checks (optional) ──────────────────────────────────
+        // We could check that ph2_start pulsed twice, etc.
+
+        // ── Summary ────────────────────────────────────────────────────────────
+        if (error_count == 0) begin
+            $display("=== All tests PASSED ===");
+        end else begin
+            $error("=== %0d tests FAILED ===", error_count);
+            $finish(1);
+        end
+        $finish;
     end
 
     // VCD dump
