@@ -170,6 +170,24 @@ module tb_dotprod_phase2_sparse;
         xnor_partial |= pack_xnor_J(1, -4'sd2);
         run_test("Test5", 0, 1, 2, 1, xnor_partial, 2'b11, 5);
 
+        // --------------------------------------------------------------------
+        // Test 6: Sparse core scenario (sign_xi=-1, J=[5, -3, 2], σ_j=[+1, -1, +1])
+        // Expected sum = 5*1 + (-3)*(-1) + 2*1 = 10
+        // --------------------------------------------------------------------
+        $display("Test 6: Sparse core scenario (sign_xi=-1, J=[5,-3,2], signs=[+1,-1,+1])");
+
+        // Build xnor_J for sign_xi=-1: xnor = ~J (bitwise NOT of J)
+        logic [K_MAX_P*IC_BITS_P-1:0] xnor_sparse = 0;
+        xnor_sparse |= pack_xnor_J(0, ~4'sd5);    // ~5 = -6
+        xnor_sparse |= pack_xnor_J(1, ~(-4'sd3)); // ~(-3) = +2 (since -3 is 1101, ~ is 0010 = +2)
+        xnor_sparse |= pack_xnor_J(2, ~4'sd2);    // ~2 = -3
+        // slot 3 unused, leave 0
+
+        // sign_eq = (σ_j == sign_xi) => σ_j=+1, sign_xi=-1 => 0; σ_j=-1 => 1
+        logic [K_MAX_P-1:0] sign_eq_sparse = 3'b010;  // slot0:0, slot1:1, slot2:0
+
+        run_test("Test6", 0, 1, 3, 0, xnor_sparse, sign_eq_sparse, 10);
+
         // Summary
         if (error_count == 0)
             $display("=== All tests PASSED ===");
