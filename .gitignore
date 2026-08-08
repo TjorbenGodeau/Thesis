@@ -16,3 +16,4 @@ xrun.key
 xrun.log
 *.vcd
 xcelium.shm/
+*.dump
