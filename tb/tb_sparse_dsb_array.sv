@@ -1,5 +1,4 @@
-// tb_sparse_dsb_array.sv
-// Self-checking testbench for sparse_dsb_array top-level module
+// tb_sparse_dsb_array.sv — multi‑case test
 `timescale 1ns/1ps
 
 module tb_sparse_dsb_array;
@@ -74,34 +73,9 @@ module tb_sparse_dsb_array;
         .scan_done   (scan_done)
     );
 
-    // ── Parameters for the test problem ──────────────────────────────────
-    localparam int NUM_NODES = 4;
-    localparam int NUM_EDGES = 4;
-    localparam int NSTEP     = 200;
-
-    localparam int A0_FP  = 16384;   // 1.0 in Q0.14
-    localparam int DT_FP  = 164;     // 0.01
-    localparam int C0_FP  = 8192;    // 0.5
-
-    typedef struct { int r, c, w; } edge_t;
-    edge_t EDGES [0:NUM_EDGES-1] = '{
-        '{0,1,-1},
-        '{1,2,-1},
-        '{2,3,-1},
-        '{3,0,-1}
-    };
-
-    logic signed [XY_W-1:0] X_INIT [0:NUM_NODES-1] = '{
-        16'sd50,    // node0: +50
-        -16'sd30,   // node1: -30
-        16'sd40,    // node2: +40
-        -16'sd35    // node3: -35
-    };
-
-    // ── Module‑level variable for step monitoring ──────────────────────
+    // ── Testbench helpers ──────────────────────────────────────────────────
     int step_count = 0;
 
-    // ── Testbench tasks ──────────────────────────────────────────────────
     task automatic mm_write(input logic [MAIN_ADDR_W-1:0] addr,
                             input logic [MAIN_WORD_W-1:0] data);
         @(posedge clk);
@@ -135,31 +109,190 @@ module tb_sparse_dsb_array;
         end
     endtask
 
-    // ── Compute Hamiltonian energy from signs ────────────────────────────
-    function automatic int compute_energy(input logic [NUM_NODES-1:0] signs);
-        int energy = 0;
-        for (int e = 0; e < NUM_EDGES; e++) begin
-            int s1 = signs[EDGES[e].r] ? 1 : -1;
-            int s2 = signs[EDGES[e].c] ? 1 : -1;
-            energy += EDGES[e].w * s1 * s2;
+    // ── Test case structure ───────────────────────────────────────────────
+    typedef struct {
+        string   name;
+        int      num_nodes;
+        int      num_edges;
+        int      nstep;
+        int      edges[ ][3];   // {src, dst, weight}
+        int      x_init[ ];
+        int      min_cut;       // minimum acceptable cut for this case
+        int      max_energy;    // energy must be <= this
+    } test_case_t;
+
+    // ── Helper to run one test case ──────────────────────────────────────
+    task automatic run_case(input test_case_t tc, output bit pass);
+        int cut;
+        int energy;
+        int e;
+
+        $display("");
+        $display("====================================================");
+        $display(" Test case: %s", tc.name);
+        $display("  nodes = %0d, edges = %0d, Nstep = %0d",
+                 tc.num_nodes, tc.num_edges, tc.nstep);
+        $display("====================================================");
+
+        // 1. Load edges
+        for (e = 0; e < tc.num_edges; e++) begin
+            int r = tc.edges[e][0];
+            int c = tc.edges[e][1];
+            int w = tc.edges[e][2];
+            mm_write(MAIN_EDGE_BASE + e, pack_edge(r, c, w));
         end
-        return energy;
+
+        // 2. Initialize x
+        for (int i = 0; i < tc.num_nodes; i++) begin
+            write_x(i, XY_W'(tc.x_init[i] << (XY_FRAC - 4))); // small scaling
+        end
+
+        // 3. Set parameters and start
+        active_n  = $clog2(N)'(tc.num_nodes);
+        num_edges = CSR_ADDR_W'(tc.num_edges);
+        Nstep     = STEP_W'(tc.nstep);
+        a0_fp     = A_BITS'(A0_FP);
+        dt_fp     = XY_FRAC'(DT_FP);
+        c0_fp     = XY_FRAC'(C0_FP);
+
+        @(posedge clk);
+        run = 1;
+
+        wait_high(scan_done, 10000, "scan_done");
+        wait_high(schedule_done, 1_000_000, "schedule_done");
+        @(posedge clk);
+        run = 0;
+
+        // 4. Evaluate result
+        cut = 0;
+        for (e = 0; e < tc.num_edges; e++) begin
+            int r = tc.edges[e][0];
+            int c = tc.edges[e][1];
+            if (signs_out[r] !== signs_out[c]) cut++;
+        end
+
+        // Compute energy
+        energy = 0;
+        for (e = 0; e < tc.num_edges; e++) begin
+            int r = tc.edges[e][0];
+            int c = tc.edges[e][1];
+            int w = tc.edges[e][2];
+            int s1 = signs_out[r] ? 1 : -1;
+            int s2 = signs_out[c] ? 1 : -1;
+            energy += w * s1 * s2;
+        end
+
+        $display("  Achieved cut = %0d / %0d", cut, tc.num_edges);
+        $display("  Energy = %0d", energy);
+
+        pass = 1'b1;
+        if (cut < tc.min_cut) begin
+            $display("  FAIL: cut %0d < min required %0d", cut, tc.min_cut);
+            pass = 1'b0;
+        end
+        if (energy > tc.max_energy) begin
+            $display("  FAIL: energy %0d > max allowed %0d", energy, tc.max_energy);
+            pass = 1'b0;
+        end
+        if (cut == tc.num_edges) begin
+            $display("  OPTIMAL: all edges cut!");
+        end
+
+        if (pass) $display("  PASS");
+        else      $display("  FAIL");
+        $display("====================================================");
+        #100;  // small delay between cases
+    endtask
+
+    // ── Test cases ────────────────────────────────────────────────────────
+    function automatic test_case_t cycle_case(int n, int w, int nstep);
+        test_case_t tc;
+        tc.name = $sformatf("%0d‑node cycle", n);
+        tc.num_nodes = n;
+        tc.num_edges = n;
+        tc.nstep = nstep;
+        tc.edges = new[n];
+        for (int i = 0; i < n; i++) begin
+            int j = (i + 1) % n;
+            tc.edges[i] = '{i, j, -1};
+        end
+        tc.x_init = new[n];
+        for (int i = 0; i < n; i++) tc.x_init[i] = (i % 2 == 0) ? 50 : -30;
+        tc.min_cut = n/2;      // at least half edges cut
+        tc.max_energy = -1;    // energy must be negative
+        return tc;
     endfunction
+
+    function automatic test_case_t complete_bipartite_case(int a, int b, int nstep);
+        test_case_t tc;
+        int n = a + b;
+        tc.name = $sformatf("K%0d,%0d complete bipartite", a, b);
+        tc.num_nodes = n;
+        tc.num_edges = a * b;
+        tc.nstep = nstep;
+        tc.edges = new[tc.num_edges];
+        int idx = 0;
+        for (int i = 0; i < a; i++) begin
+            for (int j = a; j < n; j++) begin
+                tc.edges[idx++] = '{i, j, -1};
+            end
+        end
+        tc.x_init = new[n];
+        for (int i = 0; i < n; i++) tc.x_init[i] = (i < a) ? 40 : -40;
+        tc.min_cut = tc.num_edges / 2;
+        tc.max_energy = -1;
+        return tc;
+    endfunction
+
+    function automatic test_case_t random_graph_case(int n, int density, int nstep);
+        test_case_t tc;
+        tc.name = $sformatf("random graph n=%0d density=%0.1f", n, density/10.0);
+        tc.num_nodes = n;
+        int max_edges = n*(n-1)/2;
+        int num_edges = max_edges * density / 10;
+        tc.num_edges = num_edges;
+        tc.nstep = nstep;
+        tc.edges = new[num_edges];
+        // Simple random generation using a pseudo‑random pattern
+        int idx = 0;
+        for (int i = 0; i < n && idx < num_edges; i++) begin
+            for (int j = i+1; j < n && idx < num_edges; j++) begin
+                if ( (i*j + j + i) % 10 < density ) begin
+                    tc.edges[idx++] = '{i, j, -1};
+                end
+            end
+        end
+        // In case we didn't fill, pad with some edges
+        while (idx < num_edges) begin
+            int i = idx % n;
+            int j = (idx + 7) % n;
+            if (i != j) begin
+                tc.edges[idx++] = '{i, j, -1};
+            end
+        end
+        tc.x_init = new[n];
+        for (int i = 0; i < n; i++) tc.x_init[i] = (i % 2 == 0) ? 30 : -30;
+        tc.min_cut = num_edges / 3;   // at least 1/3 cut
+        tc.max_energy = -1;
+        return tc;
+    endfunction
+
+    // ── Constants ─────────────────────────────────────────────────────────
+    localparam int A0_FP = 16384;
+    localparam int DT_FP = 164;
+    localparam int C0_FP = 8192;
 
     // ── Main test sequence ──────────────────────────────────────────────
     initial begin
-        // ---- All declarations at the top ----
-        int cut;
-        int energy;
-        logic success;
-
         $dumpfile("tb_sparse_dsb_array.vcd");
         $dumpvars(0, tb_sparse_dsb_array);
 
-        $display("====================================================");
-        $display(" Test: sparse_dsb_array on a 4‑node cycle");
-        $display(" Optimal cut = %0d (all edges cut)", NUM_EDGES);
-        $display("====================================================");
+        // Build test case list
+        test_case_t cases[4];
+        cases[0] = cycle_case(4, 200);
+        cases[1] = cycle_case(8, 300);
+        cases[2] = complete_bipartite_case(4,4, 400);
+        cases[3] = random_graph_case(10, 3, 500); // density 0.3
 
         rst_n = 0;
         repeat (4) @(posedge clk);
@@ -167,98 +300,33 @@ module tb_sparse_dsb_array;
         repeat (2) @(posedge clk);
         $display("[%0t] Reset released", $time);
 
-        // ── Phase 1: Load edges ───────────────────────────────────────────
-        $display("[%0t] Loading %0d edges", $time, NUM_EDGES);
-        for (int e = 0; e < NUM_EDGES; e++) begin
-            mm_write(MAIN_EDGE_BASE + e,
-                     pack_edge(EDGES[e].r, EDGES[e].c, EDGES[e].w));
-            $display("  edge[%0d]: %0d -- %0d  w = %0d",
-                     e, EDGES[e].r, EDGES[e].c, EDGES[e].w);
+        int total_passed = 0;
+        int total_cases = cases.size();
+
+        for (int c = 0; c < total_cases; c++) begin
+            bit pass;
+            run_case(cases[c], pass);
+            if (pass) total_passed++;
         end
 
-        // ── Phase 2: Initialise x ─────────────────────────────────────────
-        $display("[%0t] Initialising x", $time);
-        for (int i = 0; i < NUM_NODES; i++) begin
-            write_x(i, X_INIT[i]);
-            $display("  x[%0d] = %0d", i, $signed(X_INIT[i]));
-        end
-
-        // ── Phase 3: Set problem size and run ─────────────────────────────
-        active_n  = $clog2(N)'(NUM_NODES);
-        num_edges = CSR_ADDR_W'(NUM_EDGES);
-        Nstep     = STEP_W'(NSTEP);
-        a0_fp     = A_BITS'(A0_FP);
-        dt_fp     = XY_FRAC'(DT_FP);
-        c0_fp     = XY_FRAC'(C0_FP);
-
-        $display("[%0t] Starting run with Nstep = %0d", $time, NSTEP);
-        run = 1;
-
-        wait_high(scan_done, 10000, "scan_done");
-        $display("[%0t] scan_done", $time);
-
-        wait_high(schedule_done, 1_000_000, "schedule_done");
-        @(posedge clk);
-        run = 0;
-        $display("[%0t] schedule_done", $time);
-
-        // ── Phase 4: Check results ────────────────────────────────────────
-        $display("====================================================");
-        $display(" FINAL STATE");
-        $display("====================================================");
-        $display("signs_out = %0b", signs_out);
         $display("");
-
-        // Compute cut and energy
-        cut = 0;
-        for (int e = 0; e < NUM_EDGES; e++) begin
-            if (signs_out[EDGES[e].r] !== signs_out[EDGES[e].c]) begin
-                cut++;
-                $display("  edge %0d--%0d: CUT", EDGES[e].r, EDGES[e].c);
-            end else begin
-                $display("  edge %0d--%0d: not cut (both %s)",
-                         EDGES[e].r, EDGES[e].c,
-                         signs_out[EDGES[e].r] ? "A" : "B");
-            end
-        end
-
-        energy = compute_energy(signs_out);
-        $display("");
-        $display("  Achieved cut = %0d / %0d (optimal = %0d)", cut, NUM_EDGES, NUM_EDGES);
-        $display("  Hamiltonian energy = %0d (optimal = -%0d)", energy, NUM_EDGES);
-
-        // Check if result is reasonable
-        success = 1'b1;
-        if (cut < 2) begin
-            $display("  FAIL: cut too low (%0d)", cut);
-            success = 1'b0;
-        end else if (energy > 0) begin
-            $display("  FAIL: energy positive (%0d)", energy);
-            success = 1'b0;
-        end else begin
-            $display("  PASS: result is valid (cut >= 2, energy <= 0)");
-        end
-        if (cut == NUM_EDGES) begin
-            $display("  OPTIMAL: all edges cut!");
-        end else begin
-            $display("  NOTE: suboptimal (local minimum) but acceptable for deterministic solver");
-        end
-
         $display("====================================================");
-        if (success)
-            $display("TEST PASSED");
+        $display(" SUMMARY: %0d / %0d test cases PASSED", total_passed, total_cases);
+        $display("====================================================");
+        if (total_passed == total_cases)
+            $display("ALL TESTS PASSED");
         else
-            $display("TEST FAILED");
+            $display("SOME TESTS FAILED");
         $finish;
     end
 
     // ── Watchdog timeout ──────────────────────────────────────────────────
     initial begin
-        #10_000_000;
+        #50_000_000;   // longer timeout for multiple cases
         $fatal(1, "GLOBAL TIMEOUT");
     end
 
-    // ── Monitor step progress ────────────────────────────────────────────
+    // ── Step monitor ────────────────────────────────────────────────────
     always @(posedge clk) begin
         if (step_done) begin
             step_count++;
