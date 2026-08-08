@@ -1,4 +1,4 @@
-// tb_sparse_core.sv
+// tb_sparse_core.sv - corrected
 `timescale 1ns/1ps
 
 module tb_sparse_core;
@@ -37,7 +37,6 @@ module tb_sparse_core;
     logic [XY_FRAC-1:0]           dt_fp;
     logic [XY_FRAC-1:0]           c0_fp;
     logic [N_TEST-1:0]            osc_signs;
-    // CSR read ports
     logic                         rp_rd_en;
     logic [COL_IDX_WP-1:0]        rp_rd_row;
     logic [ROW_PTR_W_P-1:0]       rp_rd_data;
@@ -46,12 +45,10 @@ module tb_sparse_core;
     logic [CSR_ADDR_W_P-1:0]      en_rd_addr;
     logic [CSR_ENTRY_WP-1:0]      en_rd_data;
     logic                         en_rd_valid;
-    // Main memory read ports
     logic                         mm_rd_en;
     logic [MAIN_ADDR_WP-1:0]      mm_rd_addr;
     logic [MAIN_WORD_WP-1:0]      mm_rd_data;
     logic                         mm_rd_valid;
-    // Outputs
     logic signed [XY_W-1:0]       x_i_new;
     logic signed [XY_W-1:0]       y_i_new;
     logic                         sign_xi_new;
@@ -102,23 +99,6 @@ module tb_sparse_core;
         .sign_xi_new (sign_xi_new),
         .done        (done)
     );
-
-    // ── Testbench helpers ────────────────────────────────────────────────
-    // We need to provide the CSR and main memory pre‑load. The core internally
-    // instantiates its own submodules (SLC, SCM, dotprod, update) but they are
-    // all inside sparse_core, not external. So we cannot directly write to them.
-    // Instead, we must pre‑load the memories that are instantiated inside the core.
-    // However, the core does not have ports to load memory; it relies on the
-    // top‑level (sparse_dsb_array) to provide mm_rd_* and csr_rd_* ports.
-    // In our testbench we are connected to those ports (they are outputs of core,
-    // but we must provide the actual memory contents from the outside.
-    // That is: the core reads from main memory and CSR via its ports,
-    // but the memory itself is not inside the core; it's external.
-    // In the full design, those are connected to the actual main_memory and csr_index_store.
-    // So in our testbench we must instantiate those modules and connect them.
-    // That's what we did in the SLC test. So we'll do the same here:
-    // Instantiate main_memory and csr_index_store and connect to core's read ports.
-    // Also we need to pre‑write them.
 
     // ── Instantiate main_memory and csr_index_store ──────────────────────
     logic mm_wr_en;
@@ -185,7 +165,8 @@ module tb_sparse_core;
     endtask
 
     task rp_write(input int row, input int start, input int count);
-        automatic logic [ROW_PTR_W_P-1:0] data = {CSR_ADDR_W_P'(start), ROW_COUNT_WP'(count)};
+        logic [ROW_PTR_W_P-1:0] data;
+        data = {CSR_ADDR_W_P'(start), ROW_COUNT_WP'(count)};
         @(posedge clk);
         rp_wr_en = 1; rp_wr_row = row; rp_wr_data = data;
         @(posedge clk);
@@ -193,7 +174,8 @@ module tb_sparse_core;
     endtask
 
     task en_write(input int addr, input int col, input int maddr);
-        automatic logic [CSR_ENTRY_WP-1:0] data = {COL_IDX_WP'(col), MAIN_ADDR_WP'(maddr)};
+        logic [CSR_ENTRY_WP-1:0] data;
+        data = {COL_IDX_WP'(col), MAIN_ADDR_WP'(maddr)};
         @(posedge clk);
         en_wr_en = 1; en_wr_addr = addr; en_wr_data = data;
         @(posedge clk);
@@ -201,28 +183,19 @@ module tb_sparse_core;
     endtask
 
     function automatic logic [MAIN_WORD_WP-1:0] pack_edge(input int r, c, w);
-        return {COL_IDX_WP'(r), COL_IDX_WP'(c), IC_BITS_P'(signed'(w))};
+        logic [MAIN_WORD_WP-1:0] p;
+        p = '0;
+        p[IC_BITS_P-1:0] = IC_BITS_P'(signed'(w));
+        p[IC_BITS_P +: COL_IDX_WP] = COL_IDX_WP'(c);
+        p[MAIN_WORD_WP-1 -: COL_IDX_WP] = COL_IDX_WP'(r);
+        return p;
     endfunction
 
     // ── Reference model for correct behaviour ────────────────────────────
-    // We'll compute the expected Jx_i correctly (sum J_ij * sign_j) and then
-    // run the update_unit reference model.
-
-    // Function to unpack edge word
-    function automatic int get_col(input logic [MAIN_WORD_WP-1:0] word);
-        return int'(word[IC_BITS_P +: COL_IDX_WP]);
-    endfunction
-
-    function automatic int get_weight(input logic [MAIN_WORD_WP-1:0] word);
-        return signed'(word[IC_BITS_P-1:0]);
-    endfunction
-
-    // Compute correct Jx_i for row 0 from CSR
+    // Compute correct Jx_i for row 0 from CSR (hardcoded for this test)
     function automatic logic signed [ACCUM_W-1:0] compute_Jx(
         input logic [N_TEST-1:0] signs
     );
-        // We know the edges: (0,1) weight +5, (0,2) weight -3, (0,3) weight +2
-        // We'll just hardcode for this test
         logic signed [ACCUM_W-1:0] Jx = 0;
         Jx += 5 * (signs[1] ? 1 : -1);
         Jx += (-3) * (signs[2] ? 1 : -1);
@@ -242,38 +215,45 @@ module tb_sparse_core;
         output logic signed [XY_W-1:0] y_new,
         output logic sign_new
     );
-        // Stage A: a*x
+        // ---- All declarations at the top ----
         logic signed [PROD_W-1:0] ax_full;
         logic signed [XY_W-1:0] ax_shifted;
+        logic signed [ACCUM_W+XY_FRAC-1:0] c0jx_full;
+        logic signed [XY_W-1:0] neg_ax;
+        logic signed [ACCUM_W+XY_FRAC-1:0] force_wide;
+        logic signed [ACCUM_W+2*XY_FRAC-1:0] dy_full;
+        logic signed [XY_W-1:0] delta_y;
+        logic signed [XY_W-1:0] y_pre;
+        logic signed [2*XY_W-1:0] dx_full;
+        logic signed [XY_W-1:0] x_pre;
+        logic wall_hit_pos, wall_hit_neg, wall_hit;
+
+        // ---- Now procedural assignments ----
+        // Stage A: a*x
         ax_full = $signed({{(PROD_W-XY_W){x[XY_W-1]}}, x}) * $signed({1'b0, a});
         ax_shifted = XY_W'(ax_full >>> (A_BITS-1));
 
         // Stage B: c0*Jx
-        logic signed [ACCUM_W+XY_FRAC-1:0] c0jx_full;
         c0jx_full = Jx * $signed({1'b0, c0});
 
         // Stage C: Δy
-        logic signed [XY_W-1:0] neg_ax = -ax_shifted;
-        logic signed [ACCUM_W+XY_FRAC-1:0] force_wide;
+        neg_ax = -ax_shifted;
         force_wide = $signed({{(ACCUM_W+XY_FRAC-XY_W){neg_ax[XY_W-1]}}, neg_ax})
                      + $signed(c0jx_full);
-        logic signed [ACCUM_W+2*XY_FRAC-1:0] dy_full;
         dy_full = force_wide * $signed({1'b0, dt});
-        logic signed [XY_W-1:0] delta_y;
         delta_y = XY_W'(dy_full >>> XY_FRAC);
 
         // Stage D: y_pre
-        logic signed [XY_W-1:0] y_pre = y + delta_y;
+        y_pre = y + delta_y;
 
         // Stage E: x_pre
-        logic signed [2*XY_W-1:0] dx_full;
         dx_full = y_pre * $signed({1'b0, dt});
-        logic signed [XY_W-1:0] x_pre = x + XY_W'(dx_full >>> XY_FRAC);
+        x_pre = x + XY_W'(dx_full >>> XY_FRAC);
 
         // Stage F: wall
-        logic wall_hit_pos = (x_pre >  $signed(ONE_FP));
-        logic wall_hit_neg = (x_pre < -$signed(ONE_FP));
-        logic wall_hit = wall_hit_pos | wall_hit_neg;
+        wall_hit_pos = (x_pre >  $signed(ONE_FP));
+        wall_hit_neg = (x_pre < -$signed(ONE_FP));
+        wall_hit = wall_hit_pos | wall_hit_neg;
         if (wall_hit) begin
             x_new = wall_hit_pos ?  ONE_FP : -ONE_FP;
             y_new = '0;
@@ -308,7 +288,12 @@ module tb_sparse_core;
 
     // ── Test sequence ──────────────────────────────────────────────────
     initial begin
-        // Initialize
+        // ---- Declarations at the top ----
+        logic signed [ACCUM_W-1:0] Jx_correct;
+        logic signed [XY_W-1:0] x_exp, y_exp;
+        logic sign_exp;
+
+        // Initialize signals
         mm_wr_en   = 0;
         rp_wr_en   = 0;
         en_wr_en   = 0;
@@ -340,10 +325,7 @@ module tb_sparse_core;
         en_write(2, 3, 2);
 
         // ── Compute expected result ──────────────────────────────────────
-        logic signed [ACCUM_W-1:0] Jx_correct;
         Jx_correct = compute_Jx(osc_signs);  // should be 10
-        logic signed [XY_W-1:0] x_exp, y_exp;
-        logic sign_exp;
         ref_update(x_i, y_i, Jx_correct, a_m, dt_fp, c0_fp, x_exp, y_exp, sign_exp);
         $display("Expected Jx_i = %0d, x_new=%0d, y_new=%0d, sign=%b",
                  Jx_correct, x_exp, y_exp, sign_exp);
@@ -360,8 +342,6 @@ module tb_sparse_core;
         if (!done) $fatal("Timeout waiting for done");
 
         // ── Check outputs ──────────────────────────────────────────────
-        // Due to the sign bug, the core may produce a different Jx_i.
-        // We check against the correct expected result.
         $display("Checking outputs...");
         check_equal("x_i_new", x_i_new, x_exp);
         check_equal("y_i_new", y_i_new, y_exp);
