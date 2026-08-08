@@ -1,5 +1,5 @@
 package dsb_pkg;
-    parameter int unsigned N = 8;       // number of dSB oscillators
+    parameter int unsigned N = 128;       // number of dSB oscillators
     parameter int unsigned IC_BITS = 7; // J coefficient bit width
 
     // --- Fixed-point format for x and y ---

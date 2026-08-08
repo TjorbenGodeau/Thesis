@@ -84,7 +84,7 @@ package dsb_sparse_pkg;
     // Number of sparse-entry slots per physical compute-memory row/chunk.
     // Tune this to match your 8T array row width.  Larger K_MAX means fewer
     // chunks per row (less SLC overhead) at the cost of more 8T bitcells.
-    parameter int unsigned K_MAX = 32;
+    parameter int unsigned K_MAX = 64;
 
     // -------------------------------------------------------------------------
     // Edge-list capacity
