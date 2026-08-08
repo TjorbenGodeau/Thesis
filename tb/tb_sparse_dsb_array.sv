@@ -223,20 +223,20 @@ module tb_sparse_dsb_array;
         end
         tc.x_init = new[n];
         for (int i = 0; i < n; i++) tc.x_init[i] = (i % 2 == 0) ? 50 : -30;
-        tc.min_cut = n/2;      // at least half edges cut
-        tc.max_energy = -1;    // energy must be negative
+        tc.min_cut = n/2;
+        tc.max_energy = -1;
         return tc;
     endfunction
 
     function automatic test_case_t complete_bipartite_case(int a, int b, int nstep);
         test_case_t tc;
         int n = a + b;
+        int idx = 0;
         tc.name = $sformatf("K%0d,%0d complete bipartite", a, b);
         tc.num_nodes = n;
         tc.num_edges = a * b;
         tc.nstep = nstep;
         tc.edges = new[tc.num_edges];
-        int idx = 0;
         for (int i = 0; i < a; i++) begin
             for (int j = a; j < n; j++) begin
                 tc.edges[idx++] = '{i, j, -1};
@@ -251,14 +251,15 @@ module tb_sparse_dsb_array;
 
     function automatic test_case_t random_graph_case(int n, int density, int nstep);
         test_case_t tc;
+        int max_edges, num_edges, idx;
         tc.name = $sformatf("random graph n=%0d density=%0.1f", n, density/10.0);
         tc.num_nodes = n;
-        int max_edges = n*(n-1)/2;
-        int num_edges = max_edges * density / 10;
+        max_edges = n*(n-1)/2;
+        num_edges = max_edges * density / 10;
         tc.num_edges = num_edges;
         tc.nstep = nstep;
         tc.edges = new[num_edges];
-        int idx = 0;
+        idx = 0;
         for (int i = 0; i < n && idx < num_edges; i++) begin
             for (int j = i+1; j < n && idx < num_edges; j++) begin
                 if ( (i*j + j + i) % 10 < density ) begin
