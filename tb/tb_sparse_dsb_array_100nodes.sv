@@ -124,8 +124,11 @@ module tb_sparse_dsb_array_100nodes;
         // ---- All declarations at the top ----
         int cut;
         int energy;
+        int r, c;
+        int s1, s2;
+        int val;
         bit pass;
-        int r, c, val;
+        int e, edge_idx, i;
 
         $dumpfile("tb_sparse_dsb_array_100nodes.vcd");
         $dumpvars(0, tb_sparse_dsb_array_100nodes);
@@ -145,7 +148,8 @@ module tb_sparse_dsb_array_100nodes;
 
         // ── 1. Load all edges (J = +1) ──────────────────────────────────
         $display("[%0t] Loading %0d edges...", $time, EDGES);
-        for (int edge_idx = 0; edge_idx < EDGES; edge_idx++) begin
+        edge_idx = 0;
+        for (edge_idx = 0; edge_idx < EDGES; edge_idx++) begin
             r = edge_idx / HALF;        // 0..49
             c = HALF + (edge_idx % HALF); // 50..99
             mm_write(MAIN_EDGE_BASE + edge_idx, pack_edge(r, c, 1));
@@ -155,7 +159,7 @@ module tb_sparse_dsb_array_100nodes;
 
         // ── 2. Initialize x with small random values ──────────────────
         $display("[%0t] Initialising x with small random values", $time);
-        for (int i = 0; i < NODES; i++) begin
+        for (i = 0; i < NODES; i++) begin
             val = (i % 2 == 0) ? 5 : -5;
             write_x(i, XY_W'(val << (XY_FRAC - 4)));
         end
@@ -181,18 +185,18 @@ module tb_sparse_dsb_array_100nodes;
 
         // ── 4. Evaluate result ────────────────────────────────────────
         cut = 0;
-        for (int e = 0; e < EDGES; e++) begin
+        for (e = 0; e < EDGES; e++) begin
             r = e / HALF;
             c = HALF + (e % HALF);
             if (signs_out[r] !== signs_out[c]) cut++;
         end
 
         energy = 0;
-        for (int e = 0; e < EDGES; e++) begin
+        for (e = 0; e < EDGES; e++) begin
             r = e / HALF;
             c = HALF + (e % HALF);
-            int s1 = signs_out[r] ? 1 : -1;
-            int s2 = signs_out[c] ? 1 : -1;
+            s1 = signs_out[r] ? 1 : -1;
+            s2 = signs_out[c] ? 1 : -1;
             energy += s1 * s2;   // J = +1
         end
 
