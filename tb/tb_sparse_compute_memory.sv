@@ -100,12 +100,18 @@ module tb_sparse_compute_memory_advanced;
     logic                        stored_sign_verified [K_MAX_T];
 
     // ─── Write task with verification ──────────────────────────────────
-    task write_slot_and_verify(
+    task automatic write_slot_and_verify(   // ★ Make automatic
         input int slot,
         input logic [COL_W_T-1:0] col,
         input logic [IC_BITS_T-1:0] J,
         input logic sign
     );
+        // ★ All declarations at the top of the task
+        logic actual_sign;
+        logic exp;
+        logic [IC_BITS_T-1:0] actual_J;
+        logic [IC_BITS_T-1:0] exp_J_after;
+
         // Write
         @(posedge clk);
         wr_en = 1; wr_slot = slot; wr_col_idx = col; wr_J = J; wr_sign_j = sign;
@@ -120,12 +126,12 @@ module tb_sparse_compute_memory_advanced;
         rwl = (1 << slot);   // only this slot gets rwl=1, others get 0
         #1;
         // Check sign
-        logic actual_sign = rbl_signs[slot];
-        logic exp = expected_xnor_bit(sign, 1); // rwl=1 => XNOR(sign,1) = sign
+        actual_sign = rbl_signs[slot];
+        exp = expected_xnor_bit(sign, 1); // rwl=1 => XNOR(sign,1) = sign
         check_equal_bit($sformatf("slot%d sign after write (rwl=1)", slot), actual_sign, exp);
         // Check J bits
-        logic [IC_BITS_T-1:0] actual_J = get_rbl_J(slot);
-        logic [IC_BITS_T-1:0] exp_J_after = expected_xnor_J(J, 1); // = J
+        actual_J = get_rbl_J(slot);
+        exp_J_after = expected_xnor_J(J, 1); // = J
         check_equal_vec($sformatf("slot%d J after write (rwl=1)", slot), actual_J, exp_J_after);
 
         // Also check other slots are unchanged (optional)
@@ -175,9 +181,14 @@ module tb_sparse_compute_memory_advanced;
         rwl = 4'b0101;   // slot0=1, slot1=0, slot2=1, slot3=0
         #1;
         for (int s=0; s<K_MAX_T; s++) begin
-            logic exp_s = expected_xnor_bit(exp_sign[s], rwl[s]);
+            // ★ All declarations first
+            logic exp_s;
+            logic [IC_BITS_T-1:0] exp_j;
+            // Then assignments
+            exp_s = expected_xnor_bit(exp_sign[s], rwl[s]);
+            exp_j = expected_xnor_J(exp_J[s], rwl[s]);
+            // Then checks
             check_equal_bit($sformatf("slot%d sign_eq", s), rbl_signs[s], exp_s);
-            logic [IC_BITS_T-1:0] exp_j = expected_xnor_J(exp_J[s], rwl[s]);
             check_equal_vec($sformatf("slot%d J bits", s), get_rbl_J(s), exp_j);
         end
 
@@ -189,9 +200,11 @@ module tb_sparse_compute_memory_advanced;
         rwl = 4'b1010;   // slot0=0, slot1=1, slot2=0, slot3=1
         #1;
         for (int s=0; s<K_MAX_T; s++) begin
-            logic exp_s = expected_xnor_bit(exp_sign[s], rwl[s]);
+            logic exp_s;
+            logic [IC_BITS_T-1:0] exp_j;
+            exp_s = expected_xnor_bit(exp_sign[s], rwl[s]);
+            exp_j = expected_xnor_J(exp_J[s], rwl[s]);
             check_equal_bit($sformatf("slot%d sign_eq", s), rbl_signs[s], exp_s);
-            logic [IC_BITS_T-1:0] exp_j = expected_xnor_J(exp_J[s], rwl[s]);
             check_equal_vec($sformatf("slot%d J bits", s), get_rbl_J(s), exp_j);
         end
 
@@ -216,9 +229,11 @@ module tb_sparse_compute_memory_advanced;
         rwl = 4'b1111;
         #1;
         for (int s=0; s<K_MAX_T; s++) begin
-            logic exp_s = expected_xnor_bit(exp_sign[s], 1); // rwl=1 => stored
+            logic exp_s;
+            logic [IC_BITS_T-1:0] exp_j;
+            exp_s = expected_xnor_bit(exp_sign[s], 1); // rwl=1 => stored
+            exp_j = expected_xnor_J(exp_J[s], 1);
             check_equal_bit($sformatf("slot%d sign after overwrite", s), rbl_signs[s], exp_s);
-            logic [IC_BITS_T-1:0] exp_j = expected_xnor_J(exp_J[s], 1);
             check_equal_vec($sformatf("slot%d J after overwrite", s), get_rbl_J(s), exp_j);
         end
 
