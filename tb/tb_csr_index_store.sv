@@ -8,37 +8,32 @@ module tb_csr_index_store;
 
     // -------------------------------------------------------------------------
     // Local parameters for testing (small, to keep sim fast)
-    // We override the module parameters with these values.
     // -------------------------------------------------------------------------
-    localparam int N_TEST          = 4;           // 4 rows
-    localparam int MAX_NNZ_TEST    = 16;          // up to 16 entries
+    localparam int N_TEST          = 4;
+    localparam int MAX_NNZ_TEST    = 16;
     localparam int COL_IDX_W_TEST  = $clog2(N_TEST);   // 2
-    localparam int MAIN_ADDR_W_TEST = 4;           // small address space for main memory
-    localparam int CSR_ADDR_W_TEST = $clog2(MAX_NNZ_TEST); // 4 (0..15)
-    localparam int CSR_ENTRY_W_TEST = COL_IDX_W_TEST + MAIN_ADDR_W_TEST; // 2+4=6
+    localparam int MAIN_ADDR_W_TEST = 4;
+    localparam int CSR_ADDR_W_TEST = $clog2(MAX_NNZ_TEST); // 4
+    localparam int CSR_ENTRY_W_TEST = COL_IDX_W_TEST + MAIN_ADDR_W_TEST; // 6
     localparam int ROW_COUNT_W_TEST = $clog2(MAX_NNZ_TEST); // 4
-    localparam int ROW_PTR_W_TEST   = CSR_ADDR_W_TEST + ROW_COUNT_W_TEST; // 4+4=8
+    localparam int ROW_PTR_W_TEST   = CSR_ADDR_W_TEST + ROW_COUNT_W_TEST; // 8
 
     // Clock
     logic clk = 0;
     always #5 clk = ~clk;
 
-    // DUT signals (use local parameter widths)
+    // DUT signals
     logic                              rst_n;
-    // Row pointer write
     logic                              rp_wr_en;
     logic [COL_IDX_W_TEST-1:0]         rp_wr_row;
     logic [ROW_PTR_W_TEST-1:0]         rp_wr_data;
-    // Row pointer read
     logic                              rp_rd_en;
     logic [COL_IDX_W_TEST-1:0]         rp_rd_row;
     logic [ROW_PTR_W_TEST-1:0]         rp_rd_data;
     logic                              rp_rd_valid;
-    // Entry write
     logic                              en_wr_en;
     logic [CSR_ADDR_W_TEST-1:0]        en_wr_addr;
     logic [CSR_ENTRY_W_TEST-1:0]       en_wr_data;
-    // Entry read
     logic                              en_rd_en;
     logic [CSR_ADDR_W_TEST-1:0]        en_rd_addr;
     logic [CSR_ENTRY_W_TEST-1:0]       en_rd_data;
@@ -94,59 +89,59 @@ module tb_csr_index_store;
         end
     endtask
 
-    // Helper to write row pointer and read back
-    task write_rp(input int row, input logic [ROW_PTR_W_TEST-1:0] data);
+    // ─── Row pointer write ────────────────────────────────────────────────
+    task automatic write_rp(input int row, input logic [ROW_PTR_W_TEST-1:0] data);
         @(posedge clk);
         rp_wr_en = 1; rp_wr_row = row; rp_wr_data = data;
         @(posedge clk);
         rp_wr_en = 0;
     endtask
 
-    task read_rp(input int row, input logic [ROW_PTR_W_TEST-1:0] expected);
+    // ─── Row pointer read (correct timing) ──────────────────────────────
+    task automatic read_rp(input int row, input logic [ROW_PTR_W_TEST-1:0] expected);
         @(posedge clk);
         rp_rd_en = 1; rp_rd_row = row;
         @(posedge clk);
-        rp_rd_en = 0;
-        @(posedge clk);
-        // Data appears on this cycle with valid
+        // Now rd_data and rd_valid are valid (latched on this edge)
         check_equal_vec($sformatf("RP read row %0d", row), rp_rd_data, expected);
         check_equal_val($sformatf("RP valid row %0d", row), rp_rd_valid, 1);
+        rp_rd_en = 0;
     endtask
 
-    // Helper for entry write and read
-    task write_en(input int addr, input logic [CSR_ENTRY_W_TEST-1:0] data);
+    // ─── Entry write ─────────────────────────────────────────────────────
+    task automatic write_en(input int addr, input logic [CSR_ENTRY_W_TEST-1:0] data);
         @(posedge clk);
         en_wr_en = 1; en_wr_addr = addr; en_wr_data = data;
         @(posedge clk);
         en_wr_en = 0;
     endtask
 
-    task read_en(input int addr, input logic [CSR_ENTRY_W_TEST-1:0] expected);
+    // ─── Entry read (correct timing) ────────────────────────────────────
+    task automatic read_en(input int addr, input logic [CSR_ENTRY_W_TEST-1:0] expected);
         @(posedge clk);
         en_rd_en = 1; en_rd_addr = addr;
         @(posedge clk);
-        en_rd_en = 0;
-        @(posedge clk);
         check_equal_vec($sformatf("EN read addr %0d", addr), en_rd_data, expected);
         check_equal_val($sformatf("EN valid addr %0d", addr), en_rd_valid, 1);
+        en_rd_en = 0;
     endtask
 
+    // ─── Test sequence ──────────────────────────────────────────────────
     initial begin
-        // Initialize signals
+        // Initialize
         rst_n      = 0;
         rp_wr_en   = 0;
         rp_rd_en   = 0;
         en_wr_en   = 0;
         en_rd_en   = 0;
         repeat (2) @(posedge clk);
-        // Release reset
         rst_n      = 1;
         repeat (2) @(posedge clk);
         $display("=== Starting csr_index_store test ===");
 
-        // --------------------------------------------------------------------
-        // 1. Write row pointers for all rows
-        // --------------------------------------------------------------------
+        // -----------------------------------------------------------------
+        // 1. Write all row pointers
+        // -----------------------------------------------------------------
         $display("Test 1: Write all row pointers");
         for (int i = 0; i < N_TEST; i++) begin
             automatic logic [ROW_PTR_W_TEST-1:0] rp_data;
@@ -155,9 +150,9 @@ module tb_csr_index_store;
             $display("  Wrote row %0d: start=%0d, count=%0d", i, i*2, i+1);
         end
 
-        // --------------------------------------------------------------------
+        // -----------------------------------------------------------------
         // 2. Read them back and verify
-        // --------------------------------------------------------------------
+        // -----------------------------------------------------------------
         $display("Test 2: Read row pointers");
         for (int i = 0; i < N_TEST; i++) begin
             automatic logic [ROW_PTR_W_TEST-1:0] expected;
@@ -165,9 +160,9 @@ module tb_csr_index_store;
             read_rp(i, expected);
         end
 
-        // --------------------------------------------------------------------
-        // 3. Write entries at various addresses
-        // --------------------------------------------------------------------
+        // -----------------------------------------------------------------
+        // 3. Write entries
+        // -----------------------------------------------------------------
         $display("Test 3: Write entries");
         for (int a = 0; a < 8; a++) begin
             automatic logic [CSR_ENTRY_W_TEST-1:0] en_data;
@@ -176,9 +171,9 @@ module tb_csr_index_store;
             $display("  Wrote EN addr %0d: col=%0d, maddr=%0d", a, a+1, a*3);
         end
 
-        // --------------------------------------------------------------------
+        // -----------------------------------------------------------------
         // 4. Read entries back
-        // --------------------------------------------------------------------
+        // -----------------------------------------------------------------
         $display("Test 4: Read entries");
         for (int a = 0; a < 8; a++) begin
             automatic logic [CSR_ENTRY_W_TEST-1:0] expected;
@@ -186,70 +181,57 @@ module tb_csr_index_store;
             read_en(a, expected);
         end
 
-        // --------------------------------------------------------------------
-        // 5. Overwrite some entries and re-read
-        // --------------------------------------------------------------------
+        // -----------------------------------------------------------------
+        // 5. Overwrite entry 3 and 5
+        // -----------------------------------------------------------------
         $display("Test 5: Overwrite entry 3 and 5");
         write_en(3, {COL_IDX_W_TEST'(7), MAIN_ADDR_W_TEST'(42)});
         write_en(5, {COL_IDX_W_TEST'(2), MAIN_ADDR_W_TEST'(99)});
         read_en(3, {COL_IDX_W_TEST'(7), MAIN_ADDR_W_TEST'(42)});
         read_en(5, {COL_IDX_W_TEST'(2), MAIN_ADDR_W_TEST'(99)});
-        // Ensure neighbours unchanged
         read_en(2, {COL_IDX_W_TEST'(3), MAIN_ADDR_W_TEST'(6)});
         read_en(4, {COL_IDX_W_TEST'(5), MAIN_ADDR_W_TEST'(12)});
 
-        // --------------------------------------------------------------------
-        // 6. Overwrite row pointer and re-read
-        // --------------------------------------------------------------------
+        // -----------------------------------------------------------------
+        // 6. Overwrite row pointer 2
+        // -----------------------------------------------------------------
         $display("Test 6: Overwrite row pointer 2");
         write_rp(2, {CSR_ADDR_W_TEST'(9), ROW_COUNT_W_TEST'(5)});
         read_rp(2, {CSR_ADDR_W_TEST'(9), ROW_COUNT_W_TEST'(5)});
-        // Ensure neighbours unchanged
         read_rp(1, {CSR_ADDR_W_TEST'(2), ROW_COUNT_W_TEST'(2)});
         read_rp(3, {CSR_ADDR_W_TEST'(6), ROW_COUNT_W_TEST'(4)});
 
-        // --------------------------------------------------------------------
-        // 7. Test reset behaviour: rst_n should clear rd outputs
-        //    (memory contents should persist, but read data/valid become 0)
-        // --------------------------------------------------------------------
+        // -----------------------------------------------------------------
+        // 7. Reset behaviour
+        // -----------------------------------------------------------------
         $display("Test 7: Reset behaviour");
-        // First, do a read to see valid high
-        read_rp(0, {CSR_ADDR_W_TEST'(0), ROW_COUNT_W_TEST'(1)}); // will assert valid
-        // Now assert reset
+        read_rp(0, {CSR_ADDR_W_TEST'(0), ROW_COUNT_W_TEST'(1)});
         @(posedge clk);
         rst_n = 0;
         repeat (2) @(posedge clk);
-        // Check that rp_rd_valid and rp_rd_data are zeroed
         check_equal_val("RP valid after reset", rp_rd_valid, 0);
-        // Data may be zeroed as well (from reset logic in module)
         check_equal_vec("RP data after reset", rp_rd_data, 0);
-        // Also check EN read outputs
         check_equal_val("EN valid after reset", en_rd_valid, 0);
         check_equal_vec("EN data after reset", en_rd_data, 0);
-
-        // Release reset, then read same address; should get correct data again
         @(posedge clk);
         rst_n = 1;
         repeat (2) @(posedge clk);
         read_rp(0, {CSR_ADDR_W_TEST'(0), ROW_COUNT_W_TEST'(1)});
         read_en(0, {COL_IDX_W_TEST'(1), MAIN_ADDR_W_TEST'(0)});
 
-        // --------------------------------------------------------------------
-        // 8. Read uninitialised entry (should return X or 0, but valid should pulse)
-        //    We'll just check valid pulses.
-        // --------------------------------------------------------------------
+        // -----------------------------------------------------------------
+        // 8. Read uninitialised entry (validity only)
+        // -----------------------------------------------------------------
         $display("Test 8: Read uninitialised entry (validity only)");
         @(posedge clk);
-        en_rd_en = 1; en_rd_addr = 15;  // not written
-        @(posedge clk);
-        en_rd_en = 0;
+        en_rd_en = 1; en_rd_addr = 15;
         @(posedge clk);
         check_equal_val("EN valid for uninitialised", en_rd_valid, 1);
-        // Data is unknown, ignore.
+        en_rd_en = 0;
 
-        // --------------------------------------------------------------------
+        // -----------------------------------------------------------------
         // Summary
-        // --------------------------------------------------------------------
+        // -----------------------------------------------------------------
         if (error_count == 0) begin
             $display("=== All tests PASSED ===");
         end else begin
@@ -259,7 +241,7 @@ module tb_csr_index_store;
         $finish;
     end
 
-    // VCD dump for waveform inspection
+    // VCD dump
     initial begin
         $dumpfile("tb_csr_index_store.vcd");
         $dumpvars(0, tb_csr_index_store);
