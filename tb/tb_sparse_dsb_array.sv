@@ -14,29 +14,24 @@ module tb_sparse_dsb_array;
     logic rst_n = 0;
 
     // ── Top‑level DUT signals ─────────────────────────────────────────────
-    // Main memory write port
     logic                    mm_wr_en;
     logic [MAIN_ADDR_W-1:0]  mm_wr_addr;
     logic [MAIN_WORD_W-1:0]  mm_wr_data;
 
-    // Problem size
     logic [$clog2(N)-1:0]    active_n;
     logic [CSR_ADDR_W-1:0]   num_edges;
 
-    // Initial x/y write
     logic [$clog2(N)-1:0]    wr_xy_idx;
     logic                    wr_xy_en;
     logic signed [XY_W-1:0]  wr_x;
     logic signed [XY_W-1:0]  wr_y;
 
-    // Run control
     logic                    run;
     logic [STEP_W-1:0]       Nstep;
     logic [A_BITS-1:0]       a0_fp;
     logic [XY_FRAC-1:0]      dt_fp;
     logic [XY_FRAC-1:0]      c0_fp;
 
-    // Outputs
     logic [N*XY_W-1:0]       x_out;
     logic [N*XY_W-1:0]       y_out;
     logic [N-1:0]            signs_out;
@@ -80,17 +75,14 @@ module tb_sparse_dsb_array;
     );
 
     // ── Parameters for the test problem ──────────────────────────────────
-    // 4‑node cycle: 0‑1‑2‑3‑0  (bipartite, optimal cut = 4)
     localparam int NUM_NODES = 4;
     localparam int NUM_EDGES = 4;
     localparam int NSTEP     = 50;
 
-    // Fixed‑point constants
     localparam int A0_FP  = 16384;   // 1.0 in Q0.14
     localparam int DT_FP  = 164;     // 0.01
     localparam int C0_FP  = 8192;    // 0.5
 
-    // Edge list: (src, dst, weight)  all weights = -1
     typedef struct { int r, c, w; } edge_t;
     edge_t EDGES [0:NUM_EDGES-1] = '{
         '{0,1,-1},
@@ -99,7 +91,6 @@ module tb_sparse_dsb_array;
         '{3,0,-1}
     };
 
-    // Initial x values: small random offsets to break symmetry
     logic signed [XY_W-1:0] X_INIT [0:NUM_NODES-1] = '{
         16'sd50,    // node0: +50
         -16'sd30,   // node1: -30
@@ -107,9 +98,12 @@ module tb_sparse_dsb_array;
         -16'sd35    // node3: -35
     };
 
+    // ── Module‑level variable for step monitoring ──────────────────────
+    int step_count = 0;
+
     // ── Testbench tasks ──────────────────────────────────────────────────
-    // Write to main memory
-    task mm_write(input logic [MAIN_ADDR_W-1:0] addr, input logic [MAIN_WORD_W-1:0] data);
+    task automatic mm_write(input logic [MAIN_ADDR_W-1:0] addr,
+                            input logic [MAIN_WORD_W-1:0] data);
         @(posedge clk);
         mm_wr_en = 1;
         mm_wr_addr = addr;
@@ -118,13 +112,11 @@ module tb_sparse_dsb_array;
         mm_wr_en = 0;
     endtask
 
-    // Pack edge word: {row, col, weight}
     function automatic logic [MAIN_WORD_W-1:0] pack_edge(input int r, c, w);
         return {COL_IDX_W'(r), COL_IDX_W'(c), IC_BITS'(signed'(w))};
     endfunction
 
-    // Write initial x for a node
-    task write_x(input int idx, input logic signed [XY_W-1:0] val);
+    task automatic write_x(input int idx, input logic signed [XY_W-1:0] val);
         @(posedge clk);
         wr_xy_en = 1;
         wr_xy_idx = idx;
@@ -134,8 +126,8 @@ module tb_sparse_dsb_array;
         wr_xy_en = 0;
     endtask
 
-    // Wait for a signal with timeout
-    task wait_high(ref logic sig, input int timeout, input string lbl);
+    // Wait for a signal with timeout (automatic task)
+    task automatic wait_high(ref logic sig, input int timeout, input string lbl);
         int cnt = 0;
         while (!sig) begin
             @(posedge clk);
@@ -146,7 +138,9 @@ module tb_sparse_dsb_array;
 
     // ── Main test sequence ──────────────────────────────────────────────
     initial begin
-        // VCD dump
+        // ---- All declarations at the top ----
+        int cut;
+
         $dumpfile("tb_sparse_dsb_array.vcd");
         $dumpvars(0, tb_sparse_dsb_array);
 
@@ -155,7 +149,6 @@ module tb_sparse_dsb_array;
         $display(" Optimal cut = %0d (all edges cut)", NUM_EDGES);
         $display("====================================================");
 
-        // Reset and initialise
         rst_n = 0;
         repeat (4) @(posedge clk);
         rst_n = 1;
@@ -189,11 +182,9 @@ module tb_sparse_dsb_array;
         $display("[%0t] Starting run", $time);
         run = 1;
 
-        // Wait for scan to complete
         wait_high(scan_done, 10000, "scan_done");
         $display("[%0t] scan_done", $time);
 
-        // Wait for the solver to finish
         wait_high(schedule_done, 1_000_000, "schedule_done");
         @(posedge clk);
         run = 0;
@@ -206,14 +197,12 @@ module tb_sparse_dsb_array;
         $display("signs_out = %0b", signs_out);
         $display("");
 
-        // Print per‑node x and sign
         for (int i = 0; i < NUM_NODES; i++) begin
             automatic logic signed [XY_W-1:0] xi = x_out[i*XY_W +: XY_W];
             $display("  node %0d: x = %6d  sign = %b", i, $signed(xi), signs_out[i]);
         end
 
-        // Compute cut
-        int cut = 0;
+        cut = 0;
         for (int e = 0; e < NUM_EDGES; e++) begin
             if (signs_out[EDGES[e].r] !== signs_out[EDGES[e].c]) begin
                 cut++;
@@ -246,7 +235,6 @@ module tb_sparse_dsb_array;
     end
 
     // ── Monitor step progress ────────────────────────────────────────────
-    int step_count = 0;
     always @(posedge clk) begin
         if (step_done) begin
             step_count++;
