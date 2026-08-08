@@ -306,7 +306,7 @@ module tb_sparse_dsb_array;
         $display("[%0t] Reset released", $time);
 
         total_passed = 0;
-        total_cases = cases.size();
+        total_cases = $size(cases);   // <-- FIXED: use $size() for static array
 
         for (int c = 0; c < total_cases; c++) begin
             run_case(cases[c], pass);
