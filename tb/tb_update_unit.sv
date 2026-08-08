@@ -57,22 +57,29 @@ module tb_update_unit;
         output logic signed [XY_W_P-1:0]      x_ref,
         output logic signed [XY_W_P-1:0]      y_ref
     );
-        // Stage A: a_m * x_i
+        // ---- All declarations at the top ----
         logic signed [PROD_W_P-1:0]   ax_full;
         logic signed [XY_W_P-1:0]     ax_shifted;
+        logic signed [ACCUM_W_P+XY_FRAC_P-1:0] c0jx_full;
+        logic signed [XY_W_P-1:0]     neg_ax;
+        logic signed [ACCUM_W_P+XY_FRAC_P-1:0] force_wide;
+        logic signed [ACCUM_W_P+2*XY_FRAC_P-1:0] dy_full;
+        logic signed [XY_W_P-1:0]     delta_y;
+        logic signed [XY_W_P-1:0]     y_pre;
+        logic signed [2*XY_W_P-1:0]   dx_full;
+        logic signed [XY_W_P-1:0]     x_pre;
+        logic wall_hit_pos, wall_hit_neg, wall_hit;
+
+        // ---- Now procedural assignments ----
+        // Stage A: a_m * x_i
         ax_full = $signed({{(PROD_W_P-XY_W_P){x_i[XY_W_P-1]}}, x_i})
                   * $signed({1'b0, a_m});
         ax_shifted = XY_W_P'(ax_full >>> (A_BITS_P - 1));
 
         // Stage B: c0 * Jx_i
-        logic signed [ACCUM_W_P+XY_FRAC_P-1:0] c0jx_full;
         c0jx_full = Jx_i * $signed({1'b0, c0_fp});
 
         // Stage C: Δy = dt * (-a*x + c0*Jx)
-        logic signed [XY_W_P-1:0]   neg_ax;
-        logic signed [ACCUM_W_P+XY_FRAC_P-1:0] force_wide;
-        logic signed [ACCUM_W_P+2*XY_FRAC_P-1:0] dy_full;
-        logic signed [XY_W_P-1:0]   delta_y;
         neg_ax = -ax_shifted;
         force_wide = $signed({{(ACCUM_W_P+XY_FRAC_P-XY_W_P){neg_ax[XY_W_P-1]}}, neg_ax})
                      + $signed(c0jx_full);
@@ -80,17 +87,13 @@ module tb_update_unit;
         delta_y = XY_W_P'(dy_full >>> XY_FRAC_P);
 
         // Stage D: y_pre = y_i + delta_y
-        logic signed [XY_W_P-1:0] y_pre;
         y_pre = y_i + delta_y;
 
         // Stage E: x_pre = x_i + dt * y_pre
-        logic signed [2*XY_W_P-1:0] dx_full;
-        logic signed [XY_W_P-1:0]   x_pre;
         dx_full = $signed(y_pre) * $signed({1'b0, dt_fp});
         x_pre = x_i + XY_W_P'(dx_full >>> XY_FRAC_P);
 
         // Stage F: wall clamp
-        logic wall_hit_pos, wall_hit_neg, wall_hit;
         wall_hit_pos = (x_pre >  $signed(ONE_FP_LOCAL));
         wall_hit_neg = (x_pre < -$signed(ONE_FP_LOCAL));
         wall_hit = wall_hit_pos | wall_hit_neg;
@@ -180,17 +183,13 @@ module tb_update_unit;
         test_case("Test3", 0, 0, 50, 0, 164, 8192);  // 0.5*16384=8192
 
         // ── Test 4: Combined (a=0.5, Jx=-20, c0=0.3, dt=0.01, x=10, y=5) ────
-        // Use reference function to compute expected manually? We rely on ref.
         $display("Test 4: Combined case");
         test_case("Test4", 10, 5, -20, 8192, 164, 4915); // 0.3*16384≈4915
 
-        // ── Test 5: Wall hit (x_pre > 1) ─────────────────────────────────────
-        // Large Jx and c0 to push x over 1.
-        $display("Test 5: Wall hit positive");
-        test_case("Test5", 0, 0, 200, 0, 164, 16384); // c0=1, dt=0.01, Jx=200 → force=200, dy=2, x_pre≈200*dt? Actually x_pre = dt*y_pre, y_pre=2, so x_pre≈0.02, not enough. Need larger dt.
-        // Let's use dt=0.1 (1638 in Q0.14), Jx=500, c0=1 → force=500, dy=50, x_pre=5 → hit +1.
-        $display("Test 5b: Wall hit positive with dt=0.1");
-        test_case("Test5b", 0, 0, 500, 0, 1638, 16384); // dt_fp = 0.1*16384=1638
+        // ── Test 5: Wall hit positive ─────────────────────────────────────
+        // Use dt=0.1 (1638), Jx=500, c0=1 → force=500, dy=50, x_pre=5 → hit +1.
+        $display("Test 5: Wall hit positive with dt=0.1");
+        test_case("Test5", 0, 0, 500, 0, 1638, 16384);
 
         // ── Test 6: Wall hit negative ─────────────────────────────────────
         test_case("Test6", 0, 0, -500, 0, 1638, 16384);
