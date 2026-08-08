@@ -171,12 +171,12 @@ module tb_sparsity_scanner;
     );
         logic [MAIN_WORD_W_TEST-1:0] p;
         p = '0;
-        // Place row at top bits
+        // Weight at LSB
+        p[IC_BITS-1:0] = IC_BITS'(signed'(w));
+        // Column above weight
+        p[IC_BITS +: COL_IDX_W_TEST] = COL_IDX_W_TEST'(c);
+        // Row at top (MSB side)
         p[MAIN_WORD_W_TEST-1 -: COL_IDX_W_TEST] = COL_IDX_W_TEST'(r);
-        // Place col just below row
-        p[IC_BITS_P + COL_IDX_W_TEST -: COL_IDX_W_TEST] = COL_IDX_W_TEST'(c);
-        // Place weight at LSB
-        p[IC_BITS_P-1:0] = IC_BITS'(signed'(w));
         return p;
     endfunction
 
@@ -217,11 +217,11 @@ module tb_sparsity_scanner;
     // Test cases
     // -------------------------------------------------------------------------
     initial begin
-        // ---- All declarations must be at the top ----
+        // ---- All declarations at the top ----
         int EDGES[0:2][2];
         int num_edges_test;
         int active_n_test;
-        int e;   // loop variable
+        int e;
 
         // Initialize signals
         mm_wr_en   = 0;
