@@ -9,15 +9,15 @@ module tb_sparsity_scanner;
     // -------------------------------------------------------------------------
     // Local parameters for a tiny test system
     // -------------------------------------------------------------------------
-    localparam int N_TEST          = 4;           // 4 oscillators
-    localparam int MAX_EDGES_TEST  = 8;           // up to 8 undirected edges
+    localparam int N_TEST          = 4;
+    localparam int MAX_EDGES_TEST  = 8;
     localparam int MAX_NNZ_TEST    = 2 * MAX_EDGES_TEST;
     localparam int COL_IDX_W_TEST  = $clog2(N_TEST);             // 2
-    localparam int MAIN_ADDR_W_TEST = $clog2(MAX_EDGES_TEST + 2*N_TEST); // small
-    localparam int CSR_ADDR_W_TEST = $clog2(MAX_NNZ_TEST + 1);   // 4 (0..15)
-    localparam int CSR_ENTRY_W_TEST = COL_IDX_W_TEST + MAIN_ADDR_W_TEST;
+    localparam int MAIN_ADDR_W_TEST = $clog2(MAX_EDGES_TEST + 2*N_TEST); // 4
+    localparam int CSR_ADDR_W_TEST = $clog2(MAX_NNZ_TEST + 1);   // 4
+    localparam int CSR_ENTRY_W_TEST = COL_IDX_W_TEST + MAIN_ADDR_W_TEST; // 6
     localparam int ROW_COUNT_W_TEST = $clog2(MAX_NNZ_TEST + 1);  // 4
-    localparam int ROW_PTR_W_TEST   = CSR_ADDR_W_TEST + ROW_COUNT_W_TEST;
+    localparam int ROW_PTR_W_TEST   = CSR_ADDR_W_TEST + ROW_COUNT_W_TEST; // 8
     localparam int MAIN_WORD_W_TEST = ( (COL_IDX_W_TEST+COL_IDX_W_TEST+IC_BITS) > XY_W ) ?
                                        (COL_IDX_W_TEST+COL_IDX_W_TEST+IC_BITS) : XY_W;
     localparam int MAIN_MEM_WORDS_TEST = MAX_EDGES_TEST + 2*N_TEST;
@@ -36,7 +36,7 @@ module tb_sparsity_scanner;
     logic                     scan_done;
     logic [CSR_ADDR_W_TEST-1:0] nnz_total;
 
-    // Main memory signals (scanner reads, we also pre‑write)
+    // Main memory signals
     logic                     mm_wr_en;
     logic [MAIN_ADDR_W_TEST-1:0] mm_wr_addr;
     logic [MAIN_WORD_W_TEST-1:0] mm_wr_data;
@@ -45,7 +45,7 @@ module tb_sparsity_scanner;
     logic [MAIN_WORD_W_TEST-1:0] mm_rd_data;
     logic                     mm_rd_valid;
 
-    // CSR store write ports (scanner writes)
+    // CSR store write ports
     logic                     rp_wr_en;
     logic [COL_IDX_W_TEST-1:0] rp_wr_row;
     logic [ROW_PTR_W_TEST-1:0] rp_wr_data;
@@ -53,7 +53,7 @@ module tb_sparsity_scanner;
     logic [CSR_ADDR_W_TEST-1:0] en_wr_addr;
     logic [CSR_ENTRY_W_TEST-1:0] en_wr_data;
 
-    // CSR store read ports (our testbench reads after scan)
+    // CSR store read ports (testbench reads)
     logic                     rp_rd_en;
     logic [COL_IDX_W_TEST-1:0] rp_rd_row;
     logic [ROW_PTR_W_TEST-1:0] rp_rd_data;
@@ -167,7 +167,15 @@ module tb_sparsity_scanner;
     function automatic logic [MAIN_WORD_W_TEST-1:0] pack_edge(
         input int r, c, w
     );
-        return {COL_IDX_W_TEST'(r), COL_IDX_W_TEST'(c), IC_BITS'(signed'(w))};
+        // We need to build the packed word carefully.
+        // word = {row[COL_IDX_W-1:0], col[COL_IDX_W-1:0], weight[IC_BITS-1:0]}
+        // Since MAIN_WORD_W may be larger than the sum, pad with zeros at MSB.
+        logic [MAIN_WORD_W_TEST-1:0] p;
+        p = '0;
+        p[MAIN_WORD_W_TEST-1 -: COL_IDX_W_TEST] = COL_IDX_W_TEST'(r);
+        p[IC_BITS_P +: COL_IDX_W_TEST] = COL_IDX_W_TEST'(c);
+        p[IC_BITS_P-1:0] = IC_BITS'(signed'(w));
+        return p;
     endfunction
 
     // Write to main memory
@@ -178,31 +186,29 @@ module tb_sparsity_scanner;
         mm_wr_en = 0;
     endtask
 
-    // Read CSR row pointer and check
-    task check_rp(input int row, input int expected_start, input int expected_count);
+    // ─── Read CSR row pointer (correct timing) ──────────────────────────────
+    task automatic check_rp(input int row, input int expected_start, input int expected_count);
+        logic [ROW_PTR_W_TEST-1:0] expected;
+        expected = {CSR_ADDR_W_TEST'(expected_start), ROW_COUNT_W_TEST'(expected_count)};
         @(posedge clk);
         rp_rd_en = 1; rp_rd_row = row;
         @(posedge clk);
-        rp_rd_en = 0;
-        @(posedge clk);
-        // Data appears with valid
-        automatic logic [ROW_PTR_W_TEST-1:0] expected;
-        expected = {CSR_ADDR_W_TEST'(expected_start), ROW_COUNT_W_TEST'(expected_count)};
+        // Now rd_data and rd_valid are valid
         check_equal_vec($sformatf("rp_rd_data row %0d", row), rp_rd_data, expected);
         check_equal_val($sformatf("rp_rd_valid row %0d", row), rp_rd_valid, 1);
+        rp_rd_en = 0;
     endtask
 
-    // Read CSR entry and check
-    task check_en(input int addr, input int expected_col, input int expected_maddr);
+    // ─── Read CSR entry (correct timing) ────────────────────────────────────
+    task automatic check_en(input int addr, input int expected_col, input int expected_maddr);
+        logic [CSR_ENTRY_W_TEST-1:0] expected;
+        expected = {COL_IDX_W_TEST'(expected_col), MAIN_ADDR_W_TEST'(expected_maddr)};
         @(posedge clk);
         en_rd_en = 1; en_rd_addr = addr;
         @(posedge clk);
-        en_rd_en = 0;
-        @(posedge clk);
-        automatic logic [CSR_ENTRY_W_TEST-1:0] expected;
-        expected = {COL_IDX_W_TEST'(expected_col), MAIN_ADDR_W_TEST'(expected_maddr)};
         check_equal_vec($sformatf("en_rd_data addr %0d", addr), en_rd_data, expected);
         check_equal_val($sformatf("en_rd_valid addr %0d", addr), en_rd_valid, 1);
+        en_rd_en = 0;
     endtask
 
     // -------------------------------------------------------------------------
