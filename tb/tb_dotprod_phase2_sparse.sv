@@ -1,4 +1,4 @@
-// tb_dotprod_phase2_sparse.sv – Self-checking testbench for the corrected dotprod
+// tb_dotprod_phase2_sparse.sv — full test with correct reference model
 `timescale 1ns/1ps
 
 module tb_dotprod_phase2_sparse;
@@ -43,14 +43,13 @@ module tb_dotprod_phase2_sparse;
 
     int error_count = 0;
 
-    // Helper to pack a single slot's xnor_J into the vector
     function automatic logic [K_MAX_P*IC_BITS_P-1:0] pack_xnor_J(
         input int slot, input logic [IC_BITS_P-1:0] value
     );
         return value << (slot * IC_BITS_P);
     endfunction
 
-    // Reference model – implements the same per‑term logic as the corrected RTL
+    // Correct reference model
     function automatic logic signed [ACCUM_W_P-1:0] ref_dotprod(
         input logic [ACCUM_W_P-1:0] prev_accum,
         input logic                  accumulate,
@@ -96,7 +95,7 @@ module tb_dotprod_phase2_sparse;
         @(posedge clk);
         start = 0;
 
-        // The DUT asserts done on this same edge; check immediately.
+        // done and Jx_i are valid on this edge
         if (!done) $error("%s: done not asserted", label);
 
         if (Jx_i !== expected) begin
@@ -109,8 +108,9 @@ module tb_dotprod_phase2_sparse;
 
     // Test sequence
     initial begin
-        // ---- all local declarations at top ----
-        logic [K_MAX_P*IC_BITS_P-1:0] xnor1, xnor_chunk0, xnor_chunk1;
+        // ---- All declarations at the top ----
+        logic [K_MAX_P*IC_BITS_P-1:0] xnor1, xnor1_neg;
+        logic [K_MAX_P*IC_BITS_P-1:0] xnor_chunk0, xnor_chunk1;
         logic [K_MAX_P*IC_BITS_P-1:0] xnor_c0_neg, xnor_c1_neg, xnor_partial;
 
         start       = 0;
@@ -124,9 +124,7 @@ module tb_dotprod_phase2_sparse;
         repeat (2) @(posedge clk);
         $display("=== Starting dotprod_phase2_sparse test (reference model) ===");
 
-        // --------------------------------------------------------------------
-        // Test 1: sign_xi=+1, all sign_eq=1, J=[5,-3,2,1] -> sum=5
-        // --------------------------------------------------------------------
+        // Test 1: sign_xi=+1, all sign_eq=1, J=[5,-3,2,1] → sum=5
         $display("Test 1: sign_xi=+1, all sign_eq=1");
         xnor1 = 0;
         xnor1 |= pack_xnor_J(0, 4'sd5);
@@ -135,17 +133,17 @@ module tb_dotprod_phase2_sparse;
         xnor1 |= pack_xnor_J(3, 4'sd1);
         run_test("Test1", 0, 1, 4, 1, xnor1, 4'b1111, 5);
 
-        // --------------------------------------------------------------------
-        // Test 2: sign_xi=-1, all sign_eq=0, same J.
-        // With sign_xi=-1, sign_eq=0 means sign_j = +1 (opposite).
-        // So term = J * (+1) * (-1) = -J. Sum = -5 +3 -2 -1 = -5.
-        // --------------------------------------------------------------------
+        // Test 2: sign_xi=-1, same J, all sign_eq=0
+        // For sign_xi=-1, the bitcell output is ~J (not J)
         $display("Test 2: sign_xi=-1, all sign_eq=0");
-        run_test("Test2", 0, 1, 4, 0, xnor1, 4'b0000, -5);
+        xnor1_neg = 0;
+        xnor1_neg |= pack_xnor_J(0, ~4'sd5);
+        xnor1_neg |= pack_xnor_J(1, ~(-4'sd3));
+        xnor1_neg |= pack_xnor_J(2, ~4'sd2);
+        xnor1_neg |= pack_xnor_J(3, ~4'sd1);
+        run_test("Test2", 0, 1, 4, 0, xnor1_neg, 4'b0000, -5);
 
-        // --------------------------------------------------------------------
-        // Test 3: Two chunks, sign_xi=+1, J=[1,2,3,4] then [5,6] -> total 21
-        // --------------------------------------------------------------------
+        // Test 3: Two chunks, sign_xi=+1, J = [1,2,3,4] then [5,6] → total 21
         $display("Test 3: Two chunks, sign_xi=+1");
         xnor_chunk0 = 0;
         xnor_chunk1 = 0;
@@ -155,13 +153,7 @@ module tb_dotprod_phase2_sparse;
         run_test("Test3a chunk0", 0, 0, 4, 1, xnor_chunk0, 4'b1111, 10);
         run_test("Test3b chunk1", 1, 1, 2, 1, xnor_chunk1, 2'b11, 21);
 
-        // --------------------------------------------------------------------
-        // Test 4: Two chunks, sign_xi=-1, all sign_eq=0.
-        // For sign_xi=-1, sign_eq=0 means sign_j=+1, so term = -J.
-        // Chunk0: sum of -1,-2,-3,-4 = -10
-        // Chunk1: previous -10 + (-5-6) = -21
-        // The XNOR inputs must be ~J because sign_xi=-1.
-        // --------------------------------------------------------------------
+        // Test 4: Two chunks, sign_xi=-1 (all sign_eq=0)
         $display("Test 4: Two chunks, sign_xi=-1 (all sign_eq=0)");
         xnor_c0_neg = 0;
         xnor_c1_neg = 0;
@@ -171,19 +163,14 @@ module tb_dotprod_phase2_sparse;
         run_test("Test4a chunk0", 0, 0, 4, 0, xnor_c0_neg, 4'b0000, -10);
         run_test("Test4b chunk1", 1, 1, 2, 0, xnor_c1_neg, 2'b00, -21);
 
-        // --------------------------------------------------------------------
-        // Test 5: Partial chunk, sign_xi=+1, J=[7,-2], valid=2, sign_eq=11
-        // Sum = 7 + (-2) = 5
-        // --------------------------------------------------------------------
+        // Test 5: Partial chunk, sign_xi=+1, J=[7,-2], valid=2, sign_eq=11 → sum=5
         $display("Test 5: Partial chunk, sign_xi=+1");
         xnor_partial = 0;
         xnor_partial |= pack_xnor_J(0, 4'sd7);
         xnor_partial |= pack_xnor_J(1, -4'sd2);
         run_test("Test5", 0, 1, 2, 1, xnor_partial, 2'b11, 5);
 
-        // --------------------------------------------------------------------
         // Summary
-        // --------------------------------------------------------------------
         if (error_count == 0)
             $display("=== All tests PASSED ===");
         else begin
