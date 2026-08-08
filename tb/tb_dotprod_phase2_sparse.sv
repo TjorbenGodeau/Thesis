@@ -1,4 +1,4 @@
-// tb_dotprod_phase2_sparse.sv — full test with correct reference model
+// tb_dotprod_phase2_sparse.sv — with sign_xi multiplication in reference model
 `timescale 1ns/1ps
 
 module tb_dotprod_phase2_sparse;
@@ -49,7 +49,7 @@ module tb_dotprod_phase2_sparse;
         return value << (slot * IC_BITS_P);
     endfunction
 
-    // Correct reference model
+    // Reference model with sign_xi multiplication
     function automatic logic signed [ACCUM_W_P-1:0] ref_dotprod(
         input logic [ACCUM_W_P-1:0] prev_accum,
         input logic                  accumulate,
@@ -64,9 +64,12 @@ module tb_dotprod_phase2_sparse;
             if (k < int'(valid_count)) begin
                 logic [IC_BITS_P-1:0] xnor_word;
                 logic signed [IC_BITS_P-1:0] J_val;
+                logic signed [ACCUM_W_P-1:0] term;
                 xnor_word = xnor_J[k*IC_BITS_P +: IC_BITS_P];
                 J_val = sign_xi ? signed'(xnor_word) : signed'(~xnor_word);
-                chunk_sum += ACCUM_W_P'(sign_eq[k] ? J_val : -J_val);
+                term = (sign_eq[k] ? J_val : -J_val);
+                if (~sign_xi) term = -term;   // multiply by sign_xi
+                chunk_sum += ACCUM_W_P'(term);
             end
         end
         return (accumulate ? prev_accum : '0) + chunk_sum;
@@ -135,14 +138,14 @@ module tb_dotprod_phase2_sparse;
         xnor1 |= pack_xnor_J(3, 4'sd1);
         run_test("Test1", 0, 1, 4, 1, xnor1, 4'b1111, 5);
 
-        // Test 2: sign_xi=-1, same J, all sign_eq=0 → sum=-5
+        // Test 2: sign_xi=-1, all sign_eq=0, J=[5,-3,2,1] → sum=5 (corrected from -5)
         $display("Test 2: sign_xi=-1, all sign_eq=0");
         xnor1_neg = 0;
         xnor1_neg |= pack_xnor_J(0, ~4'sd5);
         xnor1_neg |= pack_xnor_J(1, ~(-4'sd3));
         xnor1_neg |= pack_xnor_J(2, ~4'sd2);
         xnor1_neg |= pack_xnor_J(3, ~4'sd1);
-        run_test("Test2", 0, 1, 4, 0, xnor1_neg, 4'b0000, -5);
+        run_test("Test2", 0, 1, 4, 0, xnor1_neg, 4'b0000, 5);
 
         // Test 3: Two chunks, sign_xi=+1, J = [1,2,3,4] then [5,6] → total 21
         $display("Test 3: Two chunks, sign_xi=+1");
@@ -154,15 +157,15 @@ module tb_dotprod_phase2_sparse;
         run_test("Test3a chunk0", 0, 0, 4, 1, xnor_chunk0, 4'b1111, 10);
         run_test("Test3b chunk1", 1, 1, 2, 1, xnor_chunk1, 2'b11, 21);
 
-        // Test 4: Two chunks, sign_xi=-1 (all sign_eq=0) → sums are negative
+        // Test 4: Two chunks, sign_xi=-1 (all sign_eq=0) → sums are positive (corrected)
         $display("Test 4: Two chunks, sign_xi=-1 (all sign_eq=0)");
         xnor_c0_neg = 0;
         xnor_c1_neg = 0;
         xnor_c0_neg |= pack_xnor_J(0, ~4'sd1) | pack_xnor_J(1, ~4'sd2) |
                        pack_xnor_J(2, ~4'sd3) | pack_xnor_J(3, ~4'sd4);
         xnor_c1_neg |= pack_xnor_J(0, ~4'sd5) | pack_xnor_J(1, ~4'sd6);
-        run_test("Test4a chunk0", 0, 0, 4, 0, xnor_c0_neg, 4'b0000, -10);
-        run_test("Test4b chunk1", 1, 1, 2, 0, xnor_c1_neg, 2'b00, -21);
+        run_test("Test4a chunk0", 0, 0, 4, 0, xnor_c0_neg, 4'b0000, 10);  // now +10
+        run_test("Test4b chunk1", 1, 1, 2, 0, xnor_c1_neg, 2'b00, 21);    // now +21
 
         // Test 5: Partial chunk, sign_xi=+1, J=[7,-2], valid=2, sign_eq=11 → sum=5
         $display("Test 5: Partial chunk, sign_xi=+1");
@@ -171,20 +174,13 @@ module tb_dotprod_phase2_sparse;
         xnor_partial |= pack_xnor_J(1, -4'sd2);
         run_test("Test5", 0, 1, 2, 1, xnor_partial, 2'b11, 5);
 
-        // --------------------------------------------------------------------
-        // Test 6: Sparse core scenario (sign_xi=-1, J=[5, -3, 2], σ_j=[+1, -1, +1])
-        // Expected sum = 5*1 + (-3)*(-1) + 2*1 = 10
-        // --------------------------------------------------------------------
+        // Test 6: Sparse core scenario (sign_xi=-1, J=[5,-3,2], σ_j=[+1,-1,+1]) → sum=10
         $display("Test 6: Sparse core scenario (sign_xi=-1, J=[5,-3,2], signs=[+1,-1,+1])");
         xnor_sparse = 0;
-        // For sign_xi=-1, xnor = ~J (bitwise NOT)
-        xnor_sparse |= pack_xnor_J(0, ~4'sd5);    // ~5 = 1010 = -6
-        xnor_sparse |= pack_xnor_J(1, ~(-4'sd3)); // ~(-3) = 0010 = +2 (since -3 is 1101, ~ is 0010)
-        xnor_sparse |= pack_xnor_J(2, ~4'sd2);    // ~2 = 1101 = -3
-        // slot 3 unused, leave 0
-
-        // sign_eq = (σ_j == sign_xi) => σ_j=+1, sign_xi=-1 => 0; σ_j=-1 => 1
-        sign_eq_sparse = 3'b010;  // slot0:0, slot1:1, slot2:0 (slots 0..2 only, slot3 don't care)
+        xnor_sparse |= pack_xnor_J(0, ~4'sd5);
+        xnor_sparse |= pack_xnor_J(1, ~(-4'sd3));
+        xnor_sparse |= pack_xnor_J(2, ~4'sd2);
+        sign_eq_sparse = 3'b010;  // slot0:0, slot1:1, slot2:0
         run_test("Test6", 0, 1, 3, 0, xnor_sparse, sign_eq_sparse, 10);
 
         // Summary
