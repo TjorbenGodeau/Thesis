@@ -4,10 +4,10 @@ module dotprod_phase2_sparse
     import dsb_pkg::*;
     import dsb_sparse_pkg::*;
 #(
-    parameter int unsigned K_MAX_P    = K_MAX,
-    parameter int unsigned IC_BITS_P  = IC_BITS,
-    parameter int unsigned ACCUM_W_P  = ACCUM_W,
-    parameter int unsigned K_CNT_W    = $clog2(K_MAX + 1)
+    parameter int unsigned K_MAX_P    = 4,
+    parameter int unsigned IC_BITS_P  = 4,
+    parameter int unsigned ACCUM_W_P  = 16,
+    parameter int unsigned K_CNT_W    = $clog2(K_MAX_P + 1)
 )(
     input  logic                         clk,
     input  logic                         start,
