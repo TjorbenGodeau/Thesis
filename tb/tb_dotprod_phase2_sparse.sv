@@ -20,8 +20,8 @@ module tb_dotprod_phase2_sparse;
     logic                         last_chunk;
     logic [K_CNT_W-1:0]           valid_count;
     logic                         sign_xi;
-    logic [K_MAX_P*IC_BITS_P-1:0] xnor_J;          // DUT port name remains
-    logic [K_MAX_P-1:0]           sign_eq;         // DUT port name remains
+    logic [K_MAX_P*IC_BITS_P-1:0] xnor_J;          // DUT port
+    logic [K_MAX_P-1:0]           sign_eq;         // DUT port
     logic signed [ACCUM_W_P-1:0]  Jx_i;
 
     dotprod_phase2_sparse u_dut (
@@ -43,8 +43,8 @@ module tb_dotprod_phase2_sparse;
         input logic                 acc,
         input logic [K_CNT_W-1:0]   vcnt,
         input logic                 sxi,
-        input logic [K_MAX_P*IC_BITS_P-1:0] xnor_vec,   // renamed to avoid keyword
-        input logic [K_MAX_P-1:0]   sign_eq_vec        // renamed for clarity
+        input logic [K_MAX_P*IC_BITS_P-1:0] xnor_vec,
+        input logic [K_MAX_P-1:0]   sign_eq_vec
     );
         logic signed [ACCUM_W_P-1:0] sum;
         logic [IC_BITS_P-1:0]        xw;
@@ -55,8 +55,8 @@ module tb_dotprod_phase2_sparse;
             if (k < vcnt) begin
                 // Extract the k‑th field using shift & mask
                 xw = (xnor_vec >> (k * IC_BITS_P)) & ((1 << IC_BITS_P) - 1);
-                xw_s    = $signed({1'b0, xw});        // convert to signed (positive)
-                neg_xw_s = $signed(~xw);              // two's complement of bitwise NOT
+                xw_s    = $signed({1'b0, xw});
+                neg_xw_s = $signed(~xw);
 
                 case ({sxi, sign_eq_vec[k]})
                     2'b00: sum += $signed(neg_xw_s);          // ~xw
@@ -106,7 +106,13 @@ module tb_dotprod_phase2_sparse;
         check_equal(label, Jx_i, expected);
     endtask
 
+    // ── Test execution ──────────────────────────────────────────────────
     initial begin
+        // Declare all local test vectors at the very top
+        logic [K_MAX_P*IC_BITS_P-1:0] xnor1, xnor2;
+        logic [K_MAX_P-1:0]           seq1, seq2;
+
+        // Initialize signals
         start = 0;
         accumulate = 0;
         last_chunk = 0;
@@ -118,9 +124,9 @@ module tb_dotprod_phase2_sparse;
         repeat (2) @(posedge clk);
         $display("=== dotprod_phase2_sparse test (corrected) ===");
 
-        // ── Test vectors ────────────────────────────────────────────────
-        logic [K_MAX_P*IC_BITS_P-1:0] xnor1 = 0;
-        logic [K_MAX_P-1:0]           seq1  = 4'b0101;   // slot0=1, slot1=0, slot2=1, slot3=0
+        // ── Build test vectors ──────────────────────────────────────────
+        xnor1 = 0;
+        seq1  = 4'b0101;   // slot0=1, slot1=0, slot2=1, slot3=0
 
         // slot0: xw = 5  (4'b0101)
         xnor1[0*IC_BITS_P +: IC_BITS_P] = 4'd5;
@@ -132,39 +138,26 @@ module tb_dotprod_phase2_sparse;
         xnor1[3*IC_BITS_P +: IC_BITS_P] = 4'd0;
 
         // ── Test 1: sign_xi=1, all 4 slots ─────────────────────────────
-        // Expected sum:
-        // slot0: sxi=1, seq=1 → case 2'b11 → ~5+1 = -6+1 = -5
-        // slot1: sxi=1, seq=0 → case 2'b10 → 3+1   =  4
-        // slot2: sxi=1, seq=1 → case 2'b11 → ~13+1 =  2+1 =  3   (since ~13=2)
-        // slot3: sxi=1, seq=0 → case 2'b10 → 0+1    =  1
-        // Sum = -5 + 4 + 3 + 1 = 3
+        // Expected sum: -5 + 4 + 3 + 1 = 3
         test_case("Test1 all cases (sign_xi=1)", 0, 4, 1, xnor1, seq1);
 
         // ── Test 2: sign_xi=0, same vectors ────────────────────────────
-        // slot0: sxi=0, seq=1 → case 2'b01 → xw = 5
-        // slot1: sxi=0, seq=0 → case 2'b00 → ~xw = -4
-        // slot2: sxi=0, seq=1 → case 2'b01 → xw = -3
-        // slot3: sxi=0, seq=0 → case 2'b00 → ~xw = -1
-        // Sum = 5 - 4 - 3 - 1 = -3
+        // Expected sum: 5 - 4 - 3 - 1 = -3
         test_case("Test2 sign_xi=0", 0, 4, 0, xnor1, seq1);
 
         // ── Test 3: multi‑chunk accumulation ───────────────────────────
         // Chunk0 → same as Test1: result = 3
         // Chunk1: accumulate=1, valid=2, sign_xi=1, xnor2, seq2
-        logic [K_MAX_P*IC_BITS_P-1:0] xnor2 = 0;
-        logic [K_MAX_P-1:0]           seq2  = 2'b01;   // only slots0,1 valid
+        xnor2 = 0;
+        seq2  = 2'b01;   // only slots0,1 valid
         xnor2[0*IC_BITS_P +: IC_BITS_P] = 4'd7;   // xw=7
         xnor2[1*IC_BITS_P +: IC_BITS_P] = 4'd1;   // xw=1
-        // slot0: sxi=1, seq=1 → case 2'b11 → ~7+1 = 0+1 = 1
-        // slot1: sxi=1, seq=0 → case 2'b10 → 1+1 = 2
-        // chunk sum = 1+2 = 3
-        // total = 3 + 3 = 6
+        // chunk sum = 3, total = 6
         test_case("Test3a chunk0", 0, 4, 1, xnor1, seq1);
         test_case("Test3b chunk1", 1, 2, 1, xnor2, seq2);
 
         // ── Test 4: partial chunk (valid=2) ────────────────────────────
-        // Only slots 0 and 1 used:
-        // slot0: -5, slot1: 4 → sum = -1
+        // Only slots 0 and 1 used: -5 + 4 = -1
         test_case("Test4 partial", 0, 2, 1, xnor1, seq1);
 
         // ── Summary ──────────────────────────────────────────────────────
