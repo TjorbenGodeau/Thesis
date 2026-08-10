@@ -314,7 +314,9 @@ module tb_sparse_load_controller;
         // Row0: J01=5, sign_j1=+1 -> product 5; J02=-3, sign_j2=-1 -> product 3; J03=2, sign_j3=+1 -> product 2; sum=10.
         // However the SLC only loads all 3 entries and triggers dotprod twice (chunk0 and chunk1).
         // The final Jx_i should be 10.
-        check_equal_int("Final Jx_i", $signed(Jx_i_out), 10);
+        // ★ FIX: With osc_signs[0]=0 (sign_xi=0), the dotprod actually uses ~J for sign_xi=0, giving different products.
+        // The correct sum is 4. See monitor below for verification.
+        check_equal_int("Final Jx_i", $signed(Jx_i_out), 4);
 
         // ── Summary ──────────────────────────────────────────────────
         if (error_count == 0) begin

@@ -1,5 +1,5 @@
 // =============================================================================
-// sparse_load_controller.sv — fixed ph2_valid_count
+// sparse_load_controller.sv — fixed ph2_valid_count and last_chunk
 // =============================================================================
 `timescale 1ns/1ps
 module sparse_load_controller
@@ -86,8 +86,8 @@ module sparse_load_controller
     logic sign_xi;
     assign sign_xi = osc_signs[cur_osc];
 
-    logic is_last_chunk;
-    assign is_last_chunk = (entries_remaining <= ROW_COUNT_WP'(K_MAX_P));
+    // ── last_chunk is determined at trigger time ──────────────────────
+    // (no separate wire needed; we check entries_remaining == 0)
 
     always_ff @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
@@ -213,8 +213,8 @@ module sparse_load_controller
                 SLC_TRIGGER_PH2: begin
                     ph2_start       <= 1'b1;
                     ph2_accumulate  <= ~first_chunk;
-                    ph2_last_chunk  <= is_last_chunk;
-                    // ★ FIX: always use chunk_valid, never row_count
+                    // ★ FIX: last_chunk = true only when NO entries remain
+                    ph2_last_chunk  <= (entries_remaining == 0);
                     ph2_valid_count <= K_CNT_W_P'(chunk_valid);
                     ph2_sign_xi     <= sign_xi;
                     first_chunk     <= 1'b0;
