@@ -20,8 +20,8 @@ module tb_dotprod_phase2_sparse;
     logic                         last_chunk;
     logic [K_CNT_W-1:0]           valid_count;
     logic                         sign_xi;
-    logic [K_MAX_P*IC_BITS_P-1:0] xnor_J;          // DUT port
-    logic [K_MAX_P-1:0]           sign_eq;         // DUT port
+    logic [K_MAX_P*IC_BITS_P-1:0] xnor_J;
+    logic [K_MAX_P-1:0]           sign_eq;
     logic signed [ACCUM_W_P-1:0]  Jx_i;
 
     dotprod_phase2_sparse u_dut (
@@ -37,10 +37,8 @@ module tb_dotprod_phase2_sparse;
         .Jx_i        (Jx_i)
     );
 
-    // ── Reference model (matches RTL case table) ──────────────────────
-    function automatic logic signed [ACCUM_W_P-1:0] ref_dotprod(
-        input logic [ACCUM_W_P-1:0] prev,
-        input logic                 acc,
+    // ── Reference: compute sum of one chunk (no accumulation) ────────
+    function automatic logic signed [ACCUM_W_P-1:0] chunk_sum_func(
         input logic [K_CNT_W-1:0]   vcnt,
         input logic                 sxi,
         input logic [K_MAX_P*IC_BITS_P-1:0] xnor_vec,
@@ -53,10 +51,9 @@ module tb_dotprod_phase2_sparse;
         sum = '0;
         for (int k = 0; k < K_MAX_P; k++) begin
             if (k < vcnt) begin
-                // Extract the k‑th field using shift & mask
                 xw = (xnor_vec >> (k * IC_BITS_P)) & ((1 << IC_BITS_P) - 1);
-                xw_s    = $signed({1'b0, xw});
-                neg_xw_s = $signed(~xw);
+                xw_s    = $signed({1'b0, xw});      // positive
+                neg_xw_s = $signed(~xw);            // two's complement of ~xw
 
                 case ({sxi, sign_eq_vec[k]})
                     2'b00: sum += $signed(neg_xw_s);          // ~xw
@@ -66,11 +63,12 @@ module tb_dotprod_phase2_sparse;
                 endcase
             end
         end
-        return (acc ? prev : '0) + sum;
+        return sum;
     endfunction
 
     // ── Test harness ─────────────────────────────────────────────────────
     int error_count = 0;
+    logic signed [ACCUM_W_P-1:0] tb_acc = 0;   // independent accumulator
 
     task check_equal(input string msg, input logic signed [ACCUM_W_P-1:0] a, input logic signed [ACCUM_W_P-1:0] b);
         if (a !== b) begin
@@ -89,30 +87,37 @@ module tb_dotprod_phase2_sparse;
         input logic [K_MAX_P*IC_BITS_P-1:0] xnor_vec,
         input logic [K_MAX_P-1:0]   sign_eq_vec
     );
-        automatic logic signed [ACCUM_W_P-1:0] expected;
-        expected = ref_dotprod(Jx_i, acc, vcnt, sxi, xnor_vec, sign_eq_vec);
+        // Compute chunk sum using reference
+        automatic logic signed [ACCUM_W_P-1:0] chunk = chunk_sum_func(vcnt, sxi, xnor_vec, sign_eq_vec);
+        // Update testbench accumulator
+        if (acc) tb_acc = tb_acc + chunk;
+        else     tb_acc = chunk;
+
+        // Drive inputs
         accumulate  = acc;
         valid_count = vcnt;
         sign_xi     = sxi;
         xnor_J      = xnor_vec;
         sign_eq     = sign_eq_vec;
+
+        // Apply start
         @(posedge clk);
         start = 1;
-        @(posedge clk);
-        start = 0;
-        @(posedge clk);
+        @(posedge clk);              // DUT samples start, computes, sets done
+        // done is high now
         if (!done) $error("%s: done not asserted", label);
+        // Check result
+        check_equal(label, Jx_i, tb_acc);
+        start = 0;
+        // Wait one cycle to allow done to clear (optional)
         @(posedge clk);
-        check_equal(label, Jx_i, expected);
     endtask
 
     // ── Test execution ──────────────────────────────────────────────────
     initial begin
-        // Declare all local test vectors at the very top
         logic [K_MAX_P*IC_BITS_P-1:0] xnor1, xnor2;
         logic [K_MAX_P-1:0]           seq1, seq2;
 
-        // Initialize signals
         start = 0;
         accumulate = 0;
         last_chunk = 0;
@@ -120,29 +125,25 @@ module tb_dotprod_phase2_sparse;
         sign_xi = 0;
         xnor_J = 0;
         sign_eq = 0;
+        tb_acc = 0;
 
         repeat (2) @(posedge clk);
-        $display("=== dotprod_phase2_sparse test (corrected) ===");
+        $display("=== dotprod_phase2_sparse test (corrected timing & independent acc) ===");
 
         // ── Build test vectors ──────────────────────────────────────────
         xnor1 = 0;
         seq1  = 4'b0101;   // slot0=1, slot1=0, slot2=1, slot3=0
-
-        // slot0: xw = 5  (4'b0101)
-        xnor1[0*IC_BITS_P +: IC_BITS_P] = 4'd5;
-        // slot1: xw = 3  (4'b0011)
-        xnor1[1*IC_BITS_P +: IC_BITS_P] = 4'd3;
-        // slot2: xw = 13 (4'b1101) → signed -3
-        xnor1[2*IC_BITS_P +: IC_BITS_P] = 4'd13;
-        // slot3: xw = 0
-        xnor1[3*IC_BITS_P +: IC_BITS_P] = 4'd0;
+        xnor1[0*IC_BITS_P +: IC_BITS_P] = 4'd5;   // 0101
+        xnor1[1*IC_BITS_P +: IC_BITS_P] = 4'd3;   // 0011
+        xnor1[2*IC_BITS_P +: IC_BITS_P] = 4'd13;  // 1101 → signed -3
+        xnor1[3*IC_BITS_P +: IC_BITS_P] = 4'd0;   // 0000
 
         // ── Test 1: sign_xi=1, all 4 slots ─────────────────────────────
-        // Expected sum: -5 + 4 + 3 + 1 = 3
+        // chunk sum = -5 + 4 + 3 + 1 = 3
         test_case("Test1 all cases (sign_xi=1)", 0, 4, 1, xnor1, seq1);
 
         // ── Test 2: sign_xi=0, same vectors ────────────────────────────
-        // Expected sum: 5 - 4 - 3 - 1 = -3
+        // chunk sum = 5 - 4 - 3 - 1 = -3
         test_case("Test2 sign_xi=0", 0, 4, 0, xnor1, seq1);
 
         // ── Test 3: multi‑chunk accumulation ───────────────────────────
@@ -150,9 +151,9 @@ module tb_dotprod_phase2_sparse;
         // Chunk1: accumulate=1, valid=2, sign_xi=1, xnor2, seq2
         xnor2 = 0;
         seq2  = 2'b01;   // only slots0,1 valid
-        xnor2[0*IC_BITS_P +: IC_BITS_P] = 4'd7;   // xw=7
-        xnor2[1*IC_BITS_P +: IC_BITS_P] = 4'd1;   // xw=1
-        // chunk sum = 3, total = 6
+        xnor2[0*IC_BITS_P +: IC_BITS_P] = 4'd7;   // 0111
+        xnor2[1*IC_BITS_P +: IC_BITS_P] = 4'd1;   // 0001
+        // chunk1 sum = 1 + 2 = 3; total = 3 + 3 = 6
         test_case("Test3a chunk0", 0, 4, 1, xnor1, seq1);
         test_case("Test3b chunk1", 1, 2, 1, xnor2, seq2);
 
