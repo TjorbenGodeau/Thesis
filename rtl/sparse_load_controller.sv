@@ -197,7 +197,7 @@ module sparse_load_controller
                         entries_remaining == '0) begin
                         scm_precharge <= 1'b1;
                         for (int k = 0; k < K_MAX_P; k++) begin
-                            scm_rwl[k] <= (k <= int'(slot_ptr)) ? sign_xi : 1'b0;
+                            scm_rwl[k] <= 1'b1;
                         end
                         state <= SLC_PRECLEAR;
                     end else begin

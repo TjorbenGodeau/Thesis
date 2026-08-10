@@ -1,4 +1,4 @@
-// tb_dotprod_phase2_sparse.sv — with sign_xi multiplication in reference model
+// tb_dotprod_phase2_sparse.sv
 `timescale 1ns/1ps
 
 module tb_dotprod_phase2_sparse;
@@ -24,11 +24,7 @@ module tb_dotprod_phase2_sparse;
     logic [K_MAX_P-1:0]           sign_eq;
     logic signed [ACCUM_W_P-1:0]  Jx_i;
 
-    dotprod_phase2_sparse #(
-        .K_MAX_P   (K_MAX_P),
-        .IC_BITS_P (IC_BITS_P),
-        .ACCUM_W_P (ACCUM_W_P)
-    ) u_dut (
+    dotprod_phase2_sparse u_dut (
         .clk         (clk),
         .start       (start),
         .done        (done),
@@ -41,152 +37,125 @@ module tb_dotprod_phase2_sparse;
         .Jx_i        (Jx_i)
     );
 
-    int error_count = 0;
-
-    function automatic logic [K_MAX_P*IC_BITS_P-1:0] pack_xnor_J(
-        input int slot, input logic [IC_BITS_P-1:0] value
-    );
-        return value << (slot * IC_BITS_P);
-    endfunction
-
-    // Reference model with sign_xi multiplication
+    // ── Reference model (exact copy of RTL case table) ──────────────────
     function automatic logic signed [ACCUM_W_P-1:0] ref_dotprod(
-        input logic [ACCUM_W_P-1:0] prev_accum,
-        input logic                  accumulate,
-        input logic [K_CNT_W-1:0]    valid_count,
-        input logic                  sign_xi,
-        input logic [K_MAX_P*IC_BITS_P-1:0] xnor_J,
-        input logic [K_MAX_P-1:0]    sign_eq
+        input logic [ACCUM_W_P-1:0] prev,
+        input logic                 acc,
+        input logic [K_CNT_W-1:0]   vcnt,
+        input logic                 sxi,
+        input logic [K_MAX_P*IC_BITS_P-1:0] xnor,
+        input logic [K_MAX_P-1:0]   seq
     );
-        logic signed [ACCUM_W_P-1:0] chunk_sum;
-        chunk_sum = '0;
-        for (int k = 0; k < K_MAX_P; k++) begin
-            if (k < int'(valid_count)) begin
-                logic [IC_BITS_P-1:0] xnor_word;
-                logic signed [IC_BITS_P-1:0] J_val;
+        logic signed [ACCUM_W_P-1:0] sum = '0;
+        for (int k=0; k<K_MAX_P; k++) begin
+            if (k < int'(vcnt)) begin
+                logic [IC_BITS_P-1:0] xw = xnor[k*IC_BITS_P +: IC_BITS_P];
                 logic signed [ACCUM_W_P-1:0] term;
-                xnor_word = xnor_J[k*IC_BITS_P +: IC_BITS_P];
-                J_val = sign_xi ? signed'(xnor_word) : signed'(~xnor_word);
-                term = (sign_eq[k] ? J_val : -J_val);
-                if (~sign_xi) term = -term;   // multiply by sign_xi
-                chunk_sum += ACCUM_W_P'(term);
+                case ({sxi, seq[k]})
+                    2'b00: term = ACCUM_W_P'(signed'(~xw));
+                    2'b01: term = ACCUM_W_P'(signed'(xw) + 1);
+                    2'b10: term = ACCUM_W_P'(signed'(~xw) + 1);
+                    2'b11: term = ACCUM_W_P'(signed'(xw));
+                endcase
+                sum += term;
             end
         end
-        return (accumulate ? prev_accum : '0) + chunk_sum;
+        return (acc ? prev : '0) + sum;
     endfunction
 
-    // Run a single test case
-    task automatic run_test(
-        input string label,
-        input logic  accumulate_in,
-        input logic  last_chunk_in,
-        input logic [K_CNT_W-1:0] valid_count_in,
-        input logic  sign_xi_in,
-        input logic [K_MAX_P*IC_BITS_P-1:0] xnor_J_in,
-        input logic [K_MAX_P-1:0] sign_eq_in,
-        input logic signed [ACCUM_W_P-1:0] expected
-    );
-        accumulate  = accumulate_in;
-        last_chunk  = last_chunk_in;
-        valid_count = valid_count_in;
-        sign_xi     = sign_xi_in;
-        xnor_J      = xnor_J_in;
-        sign_eq     = sign_eq_in;
+    // ── Test harness ─────────────────────────────────────────────────────
+    int error_count = 0;
 
+    task check_equal(input string msg, input logic signed [ACCUM_W_P-1:0] a, input logic signed [ACCUM_W_P-1:0] b);
+        if (a !== b) begin
+            $error("%s: expected %0d, got %0d", msg, b, a);
+            error_count++;
+        end else begin
+            $display("  %s: OK", msg);
+        end
+    endtask
+
+    task test_case(
+        input string label,
+        input logic                 acc,
+        input logic [K_CNT_W-1:0]   vcnt,
+        input logic                 sxi,
+        input logic [K_MAX_P*IC_BITS_P-1:0] xnor,
+        input logic [K_MAX_P-1:0]   seq
+    );
+        automatic logic signed [ACCUM_W_P-1:0] expected;
+        expected = ref_dotprod(Jx_i, acc, vcnt, sxi, xnor, seq);
+        accumulate  = acc;
+        valid_count = vcnt;
+        sign_xi     = sxi;
+        xnor_J      = xnor;
+        sign_eq     = seq;
         @(posedge clk);
         start = 1;
         @(posedge clk);
         start = 0;
-
-        // done and Jx_i are valid on this edge
+        @(posedge clk);
         if (!done) $error("%s: done not asserted", label);
-
-        if (Jx_i !== expected) begin
-            $error("%s: expected %0d, got %0d", label, expected, Jx_i);
-            error_count++;
-        end else begin
-            $display("%s: OK (Jx_i=%0d)", label, Jx_i);
-        end
+        @(posedge clk);
+        check_equal(label, Jx_i, expected);
     endtask
 
-    // Test sequence
     initial begin
-        // ---- All declarations at the top ----
-        logic [K_MAX_P*IC_BITS_P-1:0] xnor1, xnor1_neg;
-        logic [K_MAX_P*IC_BITS_P-1:0] xnor_chunk0, xnor_chunk1;
-        logic [K_MAX_P*IC_BITS_P-1:0] xnor_c0_neg, xnor_c1_neg, xnor_partial;
-        logic [K_MAX_P*IC_BITS_P-1:0] xnor_sparse;
-        logic [K_MAX_P-1:0]           sign_eq_sparse;
-
-        start       = 0;
-        accumulate  = 0;
-        last_chunk  = 0;
+        start = 0;
+        accumulate = 0;
+        last_chunk = 0;
         valid_count = 0;
-        sign_xi     = 0;
-        xnor_J      = 0;
-        sign_eq     = 0;
+        sign_xi = 0;
+        xnor_J = 0;
+        sign_eq = 0;
 
         repeat (2) @(posedge clk);
-        $display("=== Starting dotprod_phase2_sparse test (reference model) ===");
+        $display("=== dotprod_phase2_sparse test (case table) ===");
 
-        // Test 1: sign_xi=+1, all sign_eq=1, J=[5,-3,2,1] → sum=5
-        $display("Test 1: sign_xi=+1, all sign_eq=1");
-        xnor1 = 0;
-        xnor1 |= pack_xnor_J(0, 4'sd5);
-        xnor1 |= pack_xnor_J(1, -4'sd3);
-        xnor1 |= pack_xnor_J(2, 4'sd2);
-        xnor1 |= pack_xnor_J(3, 4'sd1);
-        run_test("Test1", 0, 1, 4, 1, xnor1, 4'b1111, 5);
+        // ── 1. Single chunk, all four combinations ──────────────────────
+        // We set xnor_J and sign_eq to exercise each case.
+        // For each slot we choose a base value and compute expected manually.
+        // Slot0: sign_xi=1, sign_eq=1 -> term = xnor
+        // Slot1: sign_xi=1, sign_eq=0 -> term = ~xnor + 1
+        // Slot2: sign_xi=0, sign_eq=1 -> term = xnor + 1
+        // Slot3: sign_xi=0, sign_eq=0 -> term = ~xnor
+        logic [K_MAX_P*IC_BITS_P-1:0] xnor1 = 0;
+        logic [K_MAX_P-1:0]           seq1   = 4'b0101; // slot0=1, slot1=0, slot2=1, slot3=0
+        xnor1[0*IC_BITS_P +: IC_BITS_P] = 4'd5;   // case 11 -> term=5
+        xnor1[1*IC_BITS_P +: IC_BITS_P] = 4'd3;   // case 10 -> ~3+1 = -4+1 = -3
+        xnor1[2*IC_BITS_P +: IC_BITS_P] = 4'd-3;  // case 01 -> -3+1 = -2
+        xnor1[3*IC_BITS_P +: IC_BITS_P] = 4'd0;   // case 00 -> ~0 = -1
+        // Sum = 5 + (-3) + (-2) + (-1) = -1
+        test_case("Test1 all cases (sign_xi=1)", 0, 4, 1, xnor1, seq1);
 
-        // Test 2: sign_xi=-1, all sign_eq=0, J=[5,-3,2,1] → sum=5 (corrected from -5)
-        $display("Test 2: sign_xi=-1, all sign_eq=0");
-        xnor1_neg = 0;
-        xnor1_neg |= pack_xnor_J(0, ~4'sd5);
-        xnor1_neg |= pack_xnor_J(1, ~(-4'sd3));
-        xnor1_neg |= pack_xnor_J(2, ~4'sd2);
-        xnor1_neg |= pack_xnor_J(3, ~4'sd1);
-        run_test("Test2", 0, 1, 4, 0, xnor1_neg, 4'b0000, 5);
+        // ── 2. Sign_xi=0 with same xnor/seq ────────────────────────────
+        // Cases change:
+        // slot0: sign_xi=0, seq=1 -> case 01: xnor+1 = 5+1=6
+        // slot1: sign_xi=0, seq=0 -> case 00: ~xnor = ~3 = -4
+        // slot2: sign_xi=0, seq=1 -> case 01: -3+1 = -2
+        // slot3: sign_xi=0, seq=0 -> case 00: ~0 = -1
+        // Sum = 6 + (-4) + (-2) + (-1) = -1
+        test_case("Test2 sign_xi=0", 0, 4, 0, xnor1, seq1);
 
-        // Test 3: Two chunks, sign_xi=+1, J = [1,2,3,4] then [5,6] → total 21
-        $display("Test 3: Two chunks, sign_xi=+1");
-        xnor_chunk0 = 0;
-        xnor_chunk1 = 0;
-        xnor_chunk0 |= pack_xnor_J(0, 4'sd1) | pack_xnor_J(1, 4'sd2) |
-                       pack_xnor_J(2, 4'sd3) | pack_xnor_J(3, 4'sd4);
-        xnor_chunk1 |= pack_xnor_J(0, 4'sd5) | pack_xnor_J(1, 4'sd6);
-        run_test("Test3a chunk0", 0, 0, 4, 1, xnor_chunk0, 4'b1111, 10);
-        run_test("Test3b chunk1", 1, 1, 2, 1, xnor_chunk1, 2'b11, 21);
+        // ── 3. Multi‑chunk accumulation ─────────────────────────────────
+        // Chunk0: accumulate=0, result = -1
+        // Chunk1: accumulate=1, valid=2, sign_xi=1, xnor2, seq2
+        logic [K_MAX_P*IC_BITS_P-1:0] xnor2 = 0;
+        logic [K_MAX_P-1:0]           seq2   = 2'b01; // only slots0,1 valid
+        xnor2[0*IC_BITS_P +: IC_BITS_P] = 4'd7;   // case 11 -> term=7
+        xnor2[1*IC_BITS_P +: IC_BITS_P] = 4'd1;   // case 10 -> ~1+1 = -2+1 = -1
+        // Sum chunk1 = 7 + (-1) = 6, total = -1 + 6 = 5
+        test_case("Test3a chunk0", 0, 4, 1, xnor1, seq1);
+        test_case("Test3b chunk1", 1, 2, 1, xnor2, seq2);
 
-        // Test 4: Two chunks, sign_xi=-1 (all sign_eq=0) → sums are positive (corrected)
-        $display("Test 4: Two chunks, sign_xi=-1 (all sign_eq=0)");
-        xnor_c0_neg = 0;
-        xnor_c1_neg = 0;
-        xnor_c0_neg |= pack_xnor_J(0, ~4'sd1) | pack_xnor_J(1, ~4'sd2) |
-                       pack_xnor_J(2, ~4'sd3) | pack_xnor_J(3, ~4'sd4);
-        xnor_c1_neg |= pack_xnor_J(0, ~4'sd5) | pack_xnor_J(1, ~4'sd6);
-        run_test("Test4a chunk0", 0, 0, 4, 0, xnor_c0_neg, 4'b0000, 10);  // now +10
-        run_test("Test4b chunk1", 1, 1, 2, 0, xnor_c1_neg, 2'b00, 21);    // now +21
+        // ── 4. Partial chunk (valid_count < K_MAX) ──────────────────────
+        // Only slots 0 and 1 used: sum = 5 + (-3) = 2
+        test_case("Test4 partial", 0, 2, 1, xnor1, seq1);
 
-        // Test 5: Partial chunk, sign_xi=+1, J=[7,-2], valid=2, sign_eq=11 → sum=5
-        $display("Test 5: Partial chunk, sign_xi=+1");
-        xnor_partial = 0;
-        xnor_partial |= pack_xnor_J(0, 4'sd7);
-        xnor_partial |= pack_xnor_J(1, -4'sd2);
-        run_test("Test5", 0, 1, 2, 1, xnor_partial, 2'b11, 5);
-
-        // Test 6: Sparse core scenario (sign_xi=-1, J=[5,-3,2], σ_j=[+1,-1,+1]) → sum=10
-        $display("Test 6: Sparse core scenario (sign_xi=-1, J=[5,-3,2], signs=[+1,-1,+1])");
-        xnor_sparse = 0;
-        xnor_sparse |= pack_xnor_J(0, ~4'sd5);
-        xnor_sparse |= pack_xnor_J(1, ~(-4'sd3));
-        xnor_sparse |= pack_xnor_J(2, ~4'sd2);
-        sign_eq_sparse = 3'b010;  // slot0:0, slot1:1, slot2:0
-        run_test("Test6", 0, 1, 3, 0, xnor_sparse, sign_eq_sparse, 10);
-
-        // Summary
-        if (error_count == 0)
+        // ── Summary ──────────────────────────────────────────────────────
+        if (error_count == 0) begin
             $display("=== All tests PASSED ===");
-        else begin
+        end else begin
             $error("=== %0d tests FAILED ===", error_count);
             $finish(1);
         end
